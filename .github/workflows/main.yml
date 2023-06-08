@@ -1,0 +1,23 @@
+name: CI build
+on:
+  push:
+    branches:
+    - main
+    - feature/*
+
+jobs:
+  build:
+    name: Build autorest
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: '16.x'
+
+    - run: npm install -g @microsoft/rush
+
+    - run: |
+        node common/scripts/install-run-rush.js update
+        node common/scripts/install-run-rush.js build

@@ -1,5 +1,5 @@
 {
-  "name": "@autorest/typescript",
+  "name": "autorest-typescript-compat",
   "version": "6.0.3",
   "scripts": {
     "build": "tsc -p . && npm run copyFiles",

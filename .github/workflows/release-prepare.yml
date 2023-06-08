@@ -1,0 +1,53 @@
+# Prepare changelog for new release and tag sources
+
+name: Prepare release tag
+run-name: Prepare release tag on ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease_version:
+        description: 'Prerelease tag (format yyyyMMDD.x)'
+        required: true
+
+jobs:
+  build:
+    name: Create version tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version_npm.outputs.version }}
+
+    steps:
+    # Use custom ssh key to allow pushed tag to trigger another workflow
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: '16.x'
+
+    - run: npm install -g @microsoft/rush
+
+    - run: |
+        node common/scripts/install-run-rush.js update
+        node common/scripts/install-run-rush.js build
+
+    - name: Determine base npm version
+      id: version_npm
+      working-directory: ./packages/autorest.typescript
+      run: |
+        $currentVersion = node -p -e "require('./package.json').version";
+        $devVersion = "v$currentVersion-beta.${{ inputs.prerelease_version }}"
+        "version=$devVersion" >> $env:GITHUB_OUTPUT
+        "AutoRest Typescript $devVersion" >> $env:GITHUB_STEP_SUMMARY
+      shell: pwsh
+
+    - name: Update changelog
+      uses: thomaseizinger/keep-a-changelog-new-release@1.3.0
+      with:
+        tag: ${{ steps.version_npm.outputs.version }}
+
+    - name: Commit changes
+      uses: EndBug/add-and-commit@v9
+      with:
+        message: Update changelog for ${{ steps.version_npm.outputs.version }} release
+        add: CHANGELOG.md
+        tag: ${{ steps.version_npm.outputs.version }} --force
