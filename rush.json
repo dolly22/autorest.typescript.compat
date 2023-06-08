@@ -296,7 +296,7 @@
     // },
     //
     {
-      "packageName": "@autorest/typescript",
+      "packageName": "autorest-typescript-compat",
       "projectFolder": "packages/autorest.typescript"
     },
     {
