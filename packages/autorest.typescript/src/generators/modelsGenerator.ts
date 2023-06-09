@@ -231,16 +231,16 @@ function writeResponseTypes(
       docs: [`Contains response data for the ${name} operation.`],
       isExported: true,
       type: useCoreV2
-        ? `{ 
-        body: boolean; 
+        ? `{
+        body: boolean;
       }`
-        : `{ 
+        : `{
         body: boolean;
 
         _response: coreHttp.HttpResponse & {
           /** The response body as text (string format) */
           bodyAsText: string;
-      
+
           /** The response body as parsed JSON or XML */
           parsedBody: ResourceGroup;
         };
@@ -594,6 +594,8 @@ const writeObjectSignature = (modelsIndexFile: SourceFile) => (
  * This function writes all UnionTypes, these types represent the options a request can use for a Polymorphic parameter
  */
 function writeUniontypes({ objects }: ClientDetails, modelsFile: SourceFile) {
+  const { compatNarrowableUnions } = getAutorestOptions();
+
   objects
     .filter(
       obj => obj.kind === ObjectKind.Polymorphic && obj.children.length > 0
@@ -601,7 +603,7 @@ function writeUniontypes({ objects }: ClientDetails, modelsFile: SourceFile) {
     .forEach(obj => {
       const polymorphicObject = obj as PolymorphicObjectDetails;
       const childrenNames = [
-        [polymorphicObject.name],
+        compatNarrowableUnions ? [] : [polymorphicObject.name],
         ...polymorphicObject.children.map(c => {
           return c.schema.children && c.schema.children.immediate.length
             ? `${c.name}Union`

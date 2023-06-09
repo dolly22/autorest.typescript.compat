@@ -42,6 +42,7 @@ export interface AutorestOptions {
   dependencyInfo?: DependencyInfo;
   lenientModelDeduplication?: boolean;
   useLegacyLro?: boolean;
+  compatNarrowableUnions?: boolean;
 }
 
 let host: AutorestExtensionHost;

@@ -43,6 +43,8 @@ export async function extractAutorestOptions(): Promise<AutorestOptions> {
   const azureSdkForJs = await getAzureSdkForJs(host);
   const dependencyInfo = await getDependencyInfo(host);
 
+  const compatNarrowableUnions = await getCompatNarrowableUnions(host);
+
   return {
     azureArm,
     addCredentials,
@@ -75,7 +77,8 @@ export async function extractAutorestOptions(): Promise<AutorestOptions> {
     productDocLink,
     coreHttpCompatMode,
     dependencyInfo,
-    useLegacyLro
+    useLegacyLro,
+    compatNarrowableUnions
   };
 }
 
@@ -267,8 +270,9 @@ async function getPackageDetails(
   const name = normalizeName(model.language.default.name, NameType.File);
   // TODO: Look for an existing package.json and
   const packageName: string = (await host.getValue("package-name")) || name;
-  const packageNameParts: RegExpMatchArray | null =
-    packageName.match(/(^@(.*)\/)?(.*)/);
+  const packageNameParts: RegExpMatchArray | null = packageName.match(
+    /(^@(.*)\/)?(.*)/
+  );
   if (!packageNameParts) {
     throw new Error("Expecting valid package name");
   }
@@ -363,4 +367,10 @@ async function getDependencyInfo(
   throw new Error(
     "Invalid dependency-info. Make sure that link and description are defined"
   );
+}
+
+async function getCompatNarrowableUnions(
+  host: AutorestExtensionHost
+): Promise<boolean> {
+  return (await host.getValue("compat-narrowable-unions")) || false;
 }
