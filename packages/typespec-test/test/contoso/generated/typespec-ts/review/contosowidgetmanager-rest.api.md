@@ -151,9 +151,6 @@ export function getLongRunningPoller<TResult extends CreateOrUpdateWidgetLogical
 // @public (undocumented)
 export function getLongRunningPoller<TResult extends DeleteWidgetLogicalResponse | DeleteWidgetDefaultResponse>(client: Client, initialResponse: DeleteWidget202Response | DeleteWidgetDefaultResponse, options?: CreateHttpPollerOptions<TResult, OperationState<TResult>>): Promise<SimplePollerLike<OperationState<TResult>, TResult>>;
 
-// @public (undocumented)
-export function getLongRunningPoller<TResult extends GetWidgetOperationStatusLogicalResponse | GetWidgetOperationStatusDefaultResponse>(client: Client, initialResponse: GetWidgetOperationStatus200Response | GetWidgetOperationStatusDefaultResponse, options?: CreateHttpPollerOptions<TResult, OperationState<TResult>>): Promise<SimplePollerLike<OperationState<TResult>, TResult>>;
-
 // @public
 export type GetPage<TPage> = (pageLink: string, maxPageSize?: number) => Promise<{
     page: TPage;
@@ -218,14 +215,6 @@ export interface GetWidgetOperationStatusDefaultResponse extends HttpResponse {
     status: string;
 }
 
-// @public
-export interface GetWidgetOperationStatusLogicalResponse extends HttpResponse {
-    // (undocumented)
-    body: ResourceOperationStatusOutput;
-    // (undocumented)
-    status: "200";
-}
-
 // @public (undocumented)
 export type GetWidgetOperationStatusParameters = RequestParameters;
 
@@ -242,7 +231,7 @@ export function isUnexpected(response: CreateOrUpdateWidget200Response | CreateO
 export function isUnexpected(response: DeleteWidget202Response | DeleteWidgetLogicalResponse | DeleteWidgetDefaultResponse): response is DeleteWidgetDefaultResponse;
 
 // @public (undocumented)
-export function isUnexpected(response: GetWidgetOperationStatus200Response | GetWidgetOperationStatusLogicalResponse | GetWidgetOperationStatusDefaultResponse): response is GetWidgetOperationStatusDefaultResponse;
+export function isUnexpected(response: GetWidgetOperationStatus200Response | GetWidgetOperationStatusDefaultResponse): response is GetWidgetOperationStatusDefaultResponse;
 
 // @public (undocumented)
 export function isUnexpected(response: ListWidgets200Response | ListWidgetsDefaultResponse): response is ListWidgetsDefaultResponse;
@@ -255,7 +244,7 @@ export interface ListWidgets {
 // @public
 export interface ListWidgets200Response extends HttpResponse {
     // (undocumented)
-    body: WidgetListOutput;
+    body: PagedWidgetOutput;
     // (undocumented)
     status: "200";
 }
@@ -284,6 +273,9 @@ export interface OperationStatusOutput {
     id: string;
     status: string;
 }
+
+// @public
+export type PagedWidgetOutput = Paged<WidgetOutput>;
 
 // @public
 export function paginate<TResponse extends PathUncheckedResponse>(client: Client, initialResponse: TResponse, options?: PagingOptions<TResponse>): PagedAsyncIterableIterator<PaginateReturn<TResponse>>;
@@ -320,9 +312,6 @@ export interface Widget {
     manufacturerId: string;
     sharedModel?: FakedSharedModel;
 }
-
-// @public
-export type WidgetListOutput = Paged<WidgetOutput>;
 
 // @public (undocumented)
 export type WidgetManagerClient = Client & {

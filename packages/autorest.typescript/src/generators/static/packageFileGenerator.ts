@@ -83,10 +83,10 @@ function regularAutorestPackage(
       `A generated SDK for ${clientDetails.name}.`,
     version: packageDetails.version,
     engines: {
-      node: ">=14.0.0"
+      node: ">=16.0.0"
     },
     dependencies: {
-      ...(hasLro && { "@azure/core-lro": "^2.5.3" }),
+      ...(hasLro && { "@azure/core-lro": "^2.5.4" }),
       ...(hasLro && { "@azure/abort-controller": "^1.0.0" }),
       ...(hasAsyncIterators && { "@azure/core-paging": "^1.2.0" }),
       ...(!useCoreV2 && { "@azure/core-http": "^2.0.0" }),
@@ -95,7 +95,7 @@ function regularAutorestPackage(
       ...(useCoreV2 &&
         coreHttpCompatMode && { "@azure/core-http-compat": "^1.2.0" }),
       ...(useCoreV2 && {
-        "@azure/core-rest-pipeline": "^1.8.0"
+        "@azure/core-rest-pipeline": "^1.12.0"
       }),
       ...(tracingInfo && {
         "@azure/core-tracing": "^1.0.0"
@@ -118,7 +118,7 @@ function regularAutorestPackage(
       "rollup-plugin-sourcemaps": "^0.6.3",
       typescript: "~5.0.0",
       "uglify-js": "^3.4.9",
-      rimraf: "^3.0.0",
+      rimraf: "^5.0.0",
       dotenv: "^16.0.0"
     },
     repository: {
@@ -156,7 +156,7 @@ function regularAutorestPackage(
       lint: "echo skipped",
       audit: "echo skipped",
       clean:
-        "rimraf dist dist-browser dist-esm test-dist temp types *.tgz *.log",
+        "rimraf --glob dist dist-browser dist-esm test-dist temp types *.tgz *.log",
       "build:node": "echo skipped",
       "build:browser": "echo skipped",
       "build:test": "echo skipped",
@@ -191,14 +191,18 @@ function regularAutorestPackage(
 
   if (generateTest) {
     packageInfo.module = `./dist-esm/src/index.js`;
-    packageInfo.devDependencies["@azure/identity"] = "^2.0.1";
+    packageInfo.devDependencies["@azure/identity"] = "^3.3.0";
     packageInfo.devDependencies["@azure-tools/test-recorder"] = "^3.0.0";
     packageInfo.devDependencies["@azure-tools/test-credential"] = "^1.0.0";
-    packageInfo.devDependencies["mocha"] = "^7.1.1";
+    packageInfo.devDependencies["mocha"] = "^10.0.0";
+    packageInfo.devDependencies["@types/mocha"] = "^10.0.0";
+    packageInfo.devDependencies["esm"] = "^3.2.18";
     packageInfo.devDependencies["@types/chai"] = "^4.2.8";
     packageInfo.devDependencies["chai"] = "^4.2.0";
     packageInfo.devDependencies["cross-env"] = "^7.0.2";
-    packageInfo.devDependencies["@types/node"] = "^14.0.0";
+    packageInfo.devDependencies["@types/node"] = "^16.0.0";
+    packageInfo.devDependencies["ts-node"] = "^10.0.0";
+
     packageInfo.scripts["test"] = "npm run integration-test";
     packageInfo.scripts["unit-test"] =
       "npm run unit-test:node && npm run unit-test:browser";
@@ -212,8 +216,7 @@ function regularAutorestPackage(
       packageInfo.scripts["integration-test:node"] =
         "dev-tool run test:node-ts-input -- --timeout 1200000 'test/*.ts'";
     } else {
-      packageInfo.scripts["integration-test:node"] =
-        "mocha -r esm --require ts-node/register --timeout 1200000 --full-trace test/*.ts --reporter ../../../common/tools/mocha-multi-reporter.js";
+      packageInfo.scripts["integration-test:node"] = `cross-env TS_NODE_COMPILER_OPTIONS="{\\\"module\\\":\\\"commonjs\\\"}" mocha -r esm --require ts-node/register --timeout 1200000 --full-trace test/*.ts`;
     }
   }
   if (

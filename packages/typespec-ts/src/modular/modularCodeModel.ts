@@ -1,11 +1,17 @@
-import { RLCOptions } from "@azure-tools/rlc-common";
+import { OperationResponse, RLCOptions } from "@azure-tools/rlc-common";
+import { Project } from "ts-morph";
 
+export interface ModularOptions {
+  sourceRoot: string;
+}
 export interface ModularCodeModel {
   options: RLCOptions;
+  modularOptions: ModularOptions;
   namespace?: string;
   subnamespaceToClients?: any;
   clients: Client[];
   types: Type[];
+  project: Project;
 }
 
 export interface Header {
@@ -21,6 +27,7 @@ export interface Property {
   optional?: boolean;
   description: string;
   readonly?: boolean;
+  format?: string;
 }
 
 export interface BodyParameter {
@@ -81,10 +88,12 @@ export interface Type {
   isFixed?: boolean;
   valueType?: Type;
   elementType?: Type;
+  parents?: Type[];
   xmlMetadata?: XmlMetadata;
   format?: string;
   properties?: Property[];
   types?: Type[];
+  isCoreErrorType?: boolean;
 }
 
 export interface Client {
@@ -94,6 +103,8 @@ export interface Client {
   operationGroups: OperationGroup[];
   url: string;
   apiVersions: any[];
+  rlcClientName: string;
+  subfolder?: string;
 }
 
 export type ParameterLocation =
@@ -101,6 +112,7 @@ export type ParameterLocation =
   | "header"
   | "query"
   | "path"
+  | "body"
   | "other";
 
 export interface Parameter {
@@ -122,6 +134,7 @@ export interface Parameter {
   inDocstring?: boolean;
   inOverriden?: boolean;
   isApiVersion?: boolean;
+  format?: string;
 }
 
 export interface Response {
@@ -134,6 +147,7 @@ export interface Response {
 
 export interface Operation {
   name: string;
+  oriName?: string;
   description: string;
   summary: string;
   url: string;
@@ -150,4 +164,5 @@ export interface Operation {
   itemName?: string;
   continuationTokenName?: string;
   addedOn?: string;
+  rlcResponse?: OperationResponse;
 }

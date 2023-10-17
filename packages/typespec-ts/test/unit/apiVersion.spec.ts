@@ -1,6 +1,6 @@
 import { assert } from "chai";
-import { emitClientFactoryFromCadl } from "./util/emitUtil.js";
-import { assertEqualContent } from "./util/testUtil.js";
+import { emitClientFactoryFromTypeSpec } from "../util/emitUtil.js";
+import { assertEqualContent } from "../util/testUtil.js";
 
 interface DefinitionOptions {
   "@service"?: boolean;
@@ -145,7 +145,7 @@ const buildDefaultReturn = (hasDefault: boolean) => {
     const baseUrl = options.baseUrl ?? \`\${endpoint}/language\`;
     ${defaultDef}
     
-    const userAgentInfo = \`azsdk-js--rest/1.0.0-beta.1\`;
+    const userAgentInfo = \`azsdk-js-test-rest/1.0.0-beta.1\`;
     const userAgentPrefix =
       options.userAgentOptions && options.userAgentOptions.userAgentPrefix
         ? \`\${options.userAgentOptions.userAgentPrefix} \${userAgentInfo}\`
@@ -188,7 +188,7 @@ const buildPathReturn_WithDefault = () => {
     const apiVersion = options.apiVersion ?? "2022-05-15-preview";
     const baseUrl = options.baseUrl ?? \`\${endpoint}/anomalydetector/\${apiVersion}\`;
 
-    const userAgentInfo = \`azsdk-js--rest/1.0.0-beta.1\`;
+    const userAgentInfo = \`azsdk-js-test-rest/1.0.0-beta.1\`;
     const userAgentPrefix =
       options.userAgentOptions && options.userAgentOptions.userAgentPrefix
         ? \`\${options.userAgentOptions.userAgentPrefix} \${userAgentInfo}\`
@@ -228,7 +228,7 @@ const buildPathReturn_WithoutDefault = () => {
   ): testClient {
     const baseUrl = options.baseUrl ?? \`\${endpoint}/anomalydetector/\${apiVersion}\`;
 
-    const userAgentInfo = \`azsdk-js--rest/1.0.0-beta.1\`;
+    const userAgentInfo = \`azsdk-js-test-rest/1.0.0-beta.1\`;
     const userAgentPrefix =
       options.userAgentOptions && options.userAgentOptions.userAgentPrefix
         ? \`\${options.userAgentOptions.userAgentPrefix} \${userAgentInfo}\`
@@ -257,7 +257,7 @@ describe("api-version", () => {
           "@service": true
         });
         const expectedRes = buildDefaultReturn(true);
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });
@@ -266,7 +266,7 @@ describe("api-version", () => {
           "@versioned": true
         });
         const expectedRes = buildDefaultReturn(true);
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });
@@ -279,7 +279,7 @@ describe("api-version", () => {
           crossVersion: true
         });
         const expectedRes = buildDefaultReturn(false);
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });
@@ -289,7 +289,7 @@ describe("api-version", () => {
           "@versioned": false
         });
         const expectedRes = buildDefaultReturn(false);
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });
@@ -302,7 +302,7 @@ describe("api-version", () => {
           "@service": true
         });
         const expectedRes = buildPathReturn_WithDefault();
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });
@@ -311,7 +311,7 @@ describe("api-version", () => {
           "@versioned": true
         });
         const expectedRes = buildPathReturn_WithDefault();
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });
@@ -323,7 +323,7 @@ describe("api-version", () => {
           "@versioned": false
         });
         const expectedRes = buildPathReturn_WithoutDefault();
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });
@@ -336,7 +336,7 @@ describe("api-version", () => {
           "@service": true
         });
         const expectedRes = buildPathReturn_WithDefault();
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });
@@ -345,7 +345,7 @@ describe("api-version", () => {
           "@versioned": true
         });
         const expectedRes = buildPathReturn_WithDefault();
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });
@@ -357,7 +357,7 @@ describe("api-version", () => {
           "@versioned": false
         });
         const expectedRes = buildPathReturn_WithoutDefault();
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });
@@ -370,7 +370,7 @@ describe("api-version", () => {
           "@service": true
         });
         const expectedRes = buildDefaultReturn(true);
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });
@@ -379,7 +379,7 @@ describe("api-version", () => {
           "@versioned": true
         });
         const expectedRes = buildDefaultReturn(true);
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });
@@ -391,7 +391,7 @@ describe("api-version", () => {
           "@versioned": false
         });
         const expectedRes = buildDefaultReturn(false);
-        const models = await emitClientFactoryFromCadl(def);
+        const models = await emitClientFactoryFromTypeSpec(def);
         assert.ok(models);
         assertEqualContent(models!.content, expectedRes);
       });

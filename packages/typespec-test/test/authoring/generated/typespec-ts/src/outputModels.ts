@@ -16,7 +16,7 @@ export interface ProjectOutput {
   /** The storage container name. */
   storageInputContainerName: string;
   /** The project settings. */
-  settings?: Record<string, string>;
+  settings?: ProjectSettingsOutput;
   /** Whether the project would be used for multiple languages or not. */
   multilingual?: boolean;
   /** The project description. */
@@ -32,6 +32,9 @@ export interface ProjectOutput {
   /** Represents the project last deployment datetime. */
   readonly lastDeployedDateTime: string;
 }
+
+/** Represents the settings used to define the project behavior. */
+export interface ProjectSettingsOutput extends Record<string, string> {}
 
 /** Provides status details for long running operations. */
 export interface OperationStatusOutput {
@@ -132,9 +135,9 @@ export interface TrainingConfigVersionOutput {
 }
 
 /** Paged collection of Project items */
-export type ProjectListOutput = Paged<ProjectOutput>;
+export type PagedProjectOutput = Paged<ProjectOutput>;
 /** Paged collection of Deployment items */
-export type DeploymentListOutput = Paged<DeploymentOutput>;
+export type PagedDeploymentOutput = Paged<DeploymentOutput>;
 /** A collection of SupportedLanguage resources. */
 export type PagedSupportedLanguageOutput = Paged<SupportedLanguageOutput>;
 /** A collection of TrainingConfigVersion resources. */

@@ -1,6 +1,5 @@
 import {
   SdkClient,
-  SdkContext,
   isApiVersion,
   listOperationGroups,
   listOperationsInOperationGroup
@@ -18,14 +17,15 @@ import {
   getEnrichedDefaultApiVersion,
   getSchemaForType,
   trimUsage
-} from "../modelUtils.js";
+} from "../utils/modelUtils.js";
+import { SdkContext } from "../utils/interfaces.js";
 
 export function transformApiVersionInfo(
   client: SdkClient,
-  program: Program,
   dpgContext: SdkContext,
   urlInfo?: UrlInfo
 ): ApiVersionInfo | undefined {
+  const program = dpgContext.program;
   const queryVersionDetail = getOperationQueryApiVersion(
     client,
     program,
@@ -77,7 +77,6 @@ function getOperationQueryApiVersion(
       );
       params.map((p) => {
         const type = getSchemaForType(
-          program,
           dpgContext,
           p.param.type,
           [SchemaContext.Exception, SchemaContext.Input],
@@ -104,7 +103,6 @@ function getOperationQueryApiVersion(
     );
     params.map((p) => {
       const type = getSchemaForType(
-        program,
         dpgContext,
         p.param.type,
         [SchemaContext.Exception, SchemaContext.Input],

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 export const pollingContent = `
 import { Client, HttpResponse } from "@azure-rest/core-client";
 {{#if useLegacyLro}}
@@ -23,7 +26,7 @@ import {
   {{#each importedResponses}}
   {{this}},
   {{/each}}
-} from "./responses";
+} from "./responses{{#if isModularLibrary}}.js{{/if}}";
 {{/if}}
 {{/if}}
 /**
@@ -82,7 +85,7 @@ export {{#unless useLegacyLro}}async {{/unless}}function getLongRunningPoller<TR
   return new LroEngine(poller, options);
   {{else}}
   options.resolveOnUnsuccessful = options.resolveOnUnsuccessful ?? true;
-  return await createHttpPoller(poller, options);
+  return createHttpPoller(poller, options);
   {{/if}}
 }
 

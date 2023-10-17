@@ -13,7 +13,8 @@ export enum NameType {
   Property,
   Parameter,
   Operation,
-  OperationGroup
+  OperationGroup,
+  Method
 }
 
 const Newable = [NameType.Class, NameType.Interface, NameType.OperationGroup];
@@ -38,7 +39,7 @@ export const ReservedModelNames: ReservedName[] = [
   { name: "else", reservedFor: [NameType.Parameter] },
   { name: "enum", reservedFor: [NameType.Parameter] },
   { name: "error", reservedFor: [NameType.Parameter, ...Newable] },
-  { name: "export", reservedFor: [NameType.Parameter] },
+  { name: "export", reservedFor: [NameType.Parameter, NameType.Operation] },
   { name: "extends", reservedFor: [NameType.Parameter] },
   { name: "false", reservedFor: [NameType.Parameter] },
   { name: "finally", reservedFor: [NameType.Parameter] },
@@ -82,7 +83,9 @@ export const ReservedModelNames: ReservedName[] = [
   { name: "while", reservedFor: [NameType.Parameter] },
   { name: "with", reservedFor: [NameType.Parameter] },
   { name: "yield", reservedFor: [NameType.Parameter] },
-  { name: "arguments", reservedFor: [NameType.Parameter] }
+  { name: "arguments", reservedFor: [NameType.Parameter] },
+  // reserve client for codegen
+  { name: "client", reservedFor: [NameType.Parameter] }
 ];
 
 export enum CasingConvention {
@@ -116,6 +119,7 @@ function getSuffix(nameType?: NameType) {
       return "Param";
     case NameType.Class:
     case NameType.Interface:
+    case NameType.Method:
     default:
       return "Model";
   }
@@ -180,6 +184,7 @@ function getCasingConvention(nameType: NameType) {
     case NameType.Property:
     case NameType.Operation:
     case NameType.Parameter:
+    case NameType.Method:
       return CasingConvention.Camel;
   }
 }
@@ -198,12 +203,12 @@ function toCasing(str: string, casing: CasingConvention): string {
   const firstChar =
     casing === CasingConvention.Pascal
       ? value.charAt(0).toUpperCase()
-      : value.charAt(0).toLocaleLowerCase();
+      : value.charAt(0).toLowerCase();
   return `${firstChar}${value.substring(1)}`;
 }
 
 function getNameParts(name: string) {
-  const parts = name.split(/[-._ ]+/);
+  const parts = name.split(/[-._ ]+/).filter((part) => part.trim().length > 0);
 
   return parts.length > 0 ? parts : [name];
 }
@@ -224,5 +229,5 @@ export function camelCase(
     return str;
   }
 
-  return str.charAt(0).toLocaleLowerCase() + str.slice(1);
+  return str.charAt(0).toLowerCase() + str.slice(1);
 }

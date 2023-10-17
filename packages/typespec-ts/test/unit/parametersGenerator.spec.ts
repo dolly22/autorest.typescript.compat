@@ -1,96 +1,157 @@
 import { assert } from "chai";
-import { emitParameterFromCadl } from "./util/emitUtil.js";
-import { assertEqualContent } from "./util/testUtil.js";
+import { emitParameterFromTypeSpec } from "../util/emitUtil.js";
+import { assertEqualContent } from "../util/testUtil.js";
 
 describe("Parameters.ts", () => {
-  describe("handle query apiVersion", () => {
-    it("should't generate apiVersion if there's a client level apiVersion", async () => {
-      const parameters = await emitParameterFromCadl(
-        `
-        model ApiVersionParameter {
-          @query
-          "api-version": string;
-        }
-        op test(...ApiVersionParameter): string;
-        `
-      );
-      assert.ok(parameters);
-      assertEqualContent(
-        parameters?.content!,
-        `
-          import { RequestParameters } from "@azure-rest/core-client";
-          
-          export type TestParameters =  RequestParameters;
+  describe("query parameters", () => {
+    describe("apiVersion in query", () => {
+      it("should't generate apiVersion if there's a client level apiVersion", async () => {
+        const parameters = await emitParameterFromTypeSpec(
           `
-      );
-    });
+          model ApiVersionParameter {
+            @query
+            "api-version": string;
+          }
+          op test(...ApiVersionParameter): string;
+          `
+        );
+        assert.ok(parameters);
+        assertEqualContent(
+          parameters?.content!,
+          `
+            import { RequestParameters } from "@azure-rest/core-client";
+            
+            export type TestParameters =  RequestParameters;
+            `
+        );
+      });
 
-    it("should generate apiVersion if there's no client level apiVersion", async () => {
-      const parameters = await emitParameterFromCadl(
-        `
-        model ApiVersionParameter {
-          @query
-          "api-version": string;
-        }
-        op test(...ApiVersionParameter): string;
-        `,
-        false,
-        true
-      );
-      assert.ok(parameters);
-      assertEqualContent(
-        parameters?.content!,
-        `
+      it("should generate apiVersion if there's no client level apiVersion", async () => {
+        const parameters = await emitParameterFromTypeSpec(
+          `
+          model ApiVersionParameter {
+            @query
+            "api-version": string;
+          }
+          op test(...ApiVersionParameter): string;
+          `,
+          false,
+          true
+        );
+        assert.ok(parameters);
+        assertEqualContent(
+          parameters?.content!,
+          `
+            import { RequestParameters } from "@azure-rest/core-client";
+            
+            export interface TestQueryParamProperties {
+              "api-version": string;
+            }
+            
+            export interface TestQueryParam {
+              queryParameters: TestQueryParamProperties;
+            }
+            
+            export type TestParameters = TestQueryParam & RequestParameters;
+            `
+        );
+      });
+    });
+    describe("other parameters in query", () => {
+      it("should generate user-custom-query ", async () => {
+        const parameters = await emitParameterFromTypeSpec(
+          `
+            model CustomParameter {
+              @query
+              "user-custom-query": string;
+            }
+            op test(...CustomParameter): string;
+            `
+        );
+        assert.ok(parameters);
+        assertEqualContent(
+          parameters?.content!,
+          `
           import { RequestParameters } from "@azure-rest/core-client";
           
           export interface TestQueryParamProperties {
-            "api-version": string;
+              "user-custom-query": string;
           }
           
           export interface TestQueryParam {
-            queryParameters: TestQueryParamProperties;
+              queryParameters: TestQueryParamProperties;
           }
           
           export type TestParameters = TestQueryParam & RequestParameters;
           `
-      );
+        );
+      });
+
+      it("should generate offsetDateTime as string", async () => {
+        const parameters = await emitParameterFromTypeSpec(
+          `
+          model QueryParameter {
+            @query
+            executionTo?: offsetDateTime;
+          }
+          op test(...QueryParameter): string;
+          `
+        );
+        assert.ok(parameters);
+        assertEqualContent(
+          parameters?.content!,
+          `
+            import { RequestParameters } from "@azure-rest/core-client";
+            
+            export interface TestQueryParamProperties {
+              executionTo?: string;
+            }
+  
+            export interface TestQueryParam {
+              queryParameters?: TestQueryParamProperties;
+            }
+            
+            export type TestParameters = TestQueryParam & RequestParameters;
+            `
+        );
+      });
     });
   });
 
-  describe("query parameters generation", () => {
-    it("should generate user-custom-query ", async () => {
-      const parameters = await emitParameterFromCadl(
+  describe("header parameters", () => {
+    it("should generate offsetDateTime as string", async () => {
+      const parameters = await emitParameterFromTypeSpec(
         `
-          model CustomParameter {
-            @query
-            "user-custom-query": string;
-          }
-          op test(...CustomParameter): string;
-          `
+        model QueryParameter {
+          @header
+          executionTo?: offsetDateTime;
+        }
+        op test(...QueryParameter): string;
+        `
       );
       assert.ok(parameters);
       assertEqualContent(
         parameters?.content!,
-        `
-        import { RequestParameters } from "@azure-rest/core-client";
-        
-        export interface TestQueryParamProperties {
-            "user-custom-query": string;
-        }
-        
-        export interface TestQueryParam {
-            queryParameters: TestQueryParamProperties;
-        }
-        
-        export type TestParameters = TestQueryParam & RequestParameters;
-        `
+        ` import { RawHttpHeadersInput } from "@azure/core-rest-pipeline";
+          import { RequestParameters } from "@azure-rest/core-client";
+          
+          export interface TestHeaders {
+            "execution-to"?: string;
+          }
+
+          export interface TestHeaderParam {
+            headers?: RawHttpHeadersInput & TestHeaders;
+          }
+          
+          export type TestParameters = TestHeaderParam & RequestParameters;
+          `
       );
     });
   });
 
-  describe("binary request generation", () => {
+  describe("binary request", () => {
     it("bytes request with application/json will be treated as string", async () => {
-      const parameters = await emitParameterFromCadl(
+      const parameters = await emitParameterFromTypeSpec(
         `
         @post op read(@body body: bytes): {};
         `
@@ -110,7 +171,7 @@ describe("Parameters.ts", () => {
     });
 
     it("bytes request should respect @header contentType and use binary format when not json or text", async () => {
-      const parameters = await emitParameterFromCadl(
+      const parameters = await emitParameterFromTypeSpec(
         `
         @post op read(@header contentType: "image/png", @body body: bytes): {};
         `
@@ -144,7 +205,7 @@ describe("Parameters.ts", () => {
     // TODO: we need more discussions about current behavior
     // issue tracked https://github.com/Azure/autorest.typescript/issues/1486
     it("multiple contentTypes defined @header", async () => {
-      const parameters = await emitParameterFromCadl(
+      const parameters = await emitParameterFromTypeSpec(
         `
         @post op read(@header contentType: "image/png" | "application/json", @body body: bytes): {};
         `
@@ -176,7 +237,7 @@ describe("Parameters.ts", () => {
     });
 
     it("contentTypes has binary data", async () => {
-      const parameters = await emitParameterFromCadl(
+      const parameters = await emitParameterFromTypeSpec(
         `
         @route("/uploadFileViaBody")
         @post op uploadFileViaBody(
@@ -212,7 +273,7 @@ describe("Parameters.ts", () => {
     });
 
     it("contentTypes has multiple form data", async () => {
-      const parameters = await emitParameterFromCadl(
+      const parameters = await emitParameterFromTypeSpec(
         `
         @route("/uploadFile")
         @post op uploadFile(
@@ -255,7 +316,7 @@ describe("Parameters.ts", () => {
     });
 
     it("contentTypes has array data defined in form body", async () => {
-      const parameters = await emitParameterFromCadl(
+      const parameters = await emitParameterFromTypeSpec(
         `
         @route("/uploadFiles")
         @post op uploadFiles(
@@ -294,9 +355,9 @@ describe("Parameters.ts", () => {
     });
   });
 
-  describe("Array in body generation", () => {
+  describe("array as request body", () => {
     it("unknown array request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       @post op read(@body body: unknown[]): void;
       `);
       assert.ok(parameters);
@@ -314,7 +375,7 @@ describe("Parameters.ts", () => {
       );
     });
     it("string array request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       @post op read(@body body: string[]): void;
       `);
       assert.ok(parameters);
@@ -333,7 +394,7 @@ describe("Parameters.ts", () => {
     });
 
     it("int32 array request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       @post op read(@body body: int32[]): void ;
       `);
       assert.ok(parameters);
@@ -352,7 +413,7 @@ describe("Parameters.ts", () => {
     });
 
     it("int64 array request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       @post op read(@body body: int64[]): void ;
       `);
       assert.ok(parameters);
@@ -371,7 +432,7 @@ describe("Parameters.ts", () => {
     });
 
     it("float32 array request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       @post op read(@body body: float32[]): void ;
       `);
       assert.ok(parameters);
@@ -390,7 +451,7 @@ describe("Parameters.ts", () => {
     });
 
     it("boolean array request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       @post op read(@body body: boolean[]): void ;
       `);
       assert.ok(parameters);
@@ -409,7 +470,7 @@ describe("Parameters.ts", () => {
     });
 
     it("bytes array request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       @post op read(@body body: bytes[]): void ;
       `);
       assert.ok(parameters);
@@ -428,7 +489,7 @@ describe("Parameters.ts", () => {
     });
 
     it("plainDate array request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       @post op read(@body body: plainDate[]): void;
       `);
       assert.ok(parameters);
@@ -447,7 +508,7 @@ describe("Parameters.ts", () => {
     });
 
     it("datetime array request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       @post op read(@body body: utcDateTime[]): void;
       `);
       assert.ok(parameters);
@@ -466,7 +527,7 @@ describe("Parameters.ts", () => {
     });
 
     it("duration array request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       @post op read(@body body:  duration[]): void;
       `);
       assert.ok(parameters);
@@ -485,7 +546,7 @@ describe("Parameters.ts", () => {
     });
 
     it("SimpleModel array request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       model SimpleModel {
         prop1: string;
         prop2: int32;
@@ -509,7 +570,7 @@ describe("Parameters.ts", () => {
     });
 
     it("InnerModel array request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       model InnerModel {
         property: string;
         children?: InnerModel[];
@@ -533,9 +594,9 @@ describe("Parameters.ts", () => {
     });
   });
 
-  describe("Dictionary in body generation", () => {
+  describe("dictionary as request body", () => {
     it("Simple model dictionary request generation", async () => {
-      const parameters = await emitParameterFromCadl(`
+      const parameters = await emitParameterFromTypeSpec(`
       model SimpleModel {
         prop1: string;
         prop2: int32;

@@ -33,11 +33,16 @@ export function buildObjectInterfaces(
   const objectInterfaces: InterfaceDeclarationStructure[] = [];
 
   for (const objectSchema of objectSchemas) {
-    if (objectSchema.alias || objectSchema.outputAlias) {
+    if (
+      objectSchema.alias ||
+      objectSchema.outputAlias ||
+      objectSchema.fromCore
+    ) {
       continue;
     }
     const baseName = getObjectBaseName(objectSchema, schemaUsage);
     const interfaceDeclaration = getObjectInterfaceDeclaration(
+      model,
       baseName,
       objectSchema,
       schemaUsage,
@@ -175,6 +180,7 @@ function getPolymorphicTypeAlias(
  * root node it will suffix it with Base.
  */
 function getObjectInterfaceDeclaration(
+  model: RLCModel,
   baseName: string,
   objectSchema: ObjectSchema,
   schemaUsage: SchemaContext[],
@@ -195,6 +201,7 @@ function getObjectInterfaceDeclaration(
 
   // Add the polymorphic property if exists
   propertySignatures = addDiscriminatorProperty(
+    model,
     objectSchema,
     propertySignatures
   );
@@ -218,10 +225,11 @@ function isPolymorphicParent(objectSchema: ObjectSchema) {
 }
 
 function addDiscriminatorProperty(
+  model: RLCModel,
   objectSchema: ObjectSchema,
   properties: PropertySignatureStructure[]
 ): PropertySignatureStructure[] {
-  const polymorphicProperty = getDiscriminatorProperty(objectSchema);
+  const polymorphicProperty = getDiscriminatorProperty(model, objectSchema);
 
   if (polymorphicProperty) {
     // It is possible that the polymorphic property needs to override an existing property.
@@ -240,6 +248,7 @@ function addDiscriminatorProperty(
  * Finds the name of the property used as discriminator and the discriminator value.
  */
 function getDiscriminatorProperty(
+  model: RLCModel,
   objectSchema: ObjectSchema
 ): PropertySignatureStructure | undefined {
   const discriminatorValue = objectSchema.discriminatorValue;
@@ -256,11 +265,10 @@ function getDiscriminatorProperty(
         `getDiscriminatorProperty: Expected object ${objectSchema.name} to have a discriminator in its hierarchy but found none`
       );
     }
-
     return {
       kind: StructureKind.PropertySignature,
       name: `"${discriminatorPropertyName}"`,
-      type: discriminators
+      type: model.options?.sourceFrom === "Swagger" ? discriminators : `string`
     };
   }
 
@@ -345,7 +353,7 @@ function getChildDiscriminatorValues(children: ObjectSchema[]): string[] {
 /**
  * Gets a list of types a given object may extend from
  */
-function getImmediateParentsNames(
+export function getImmediateParentsNames(
   objectSchema: ObjectSchema,
   schemaUsage: SchemaContext[]
 ): string[] {
@@ -355,24 +363,32 @@ function getImmediateParentsNames(
 
   const extendFrom: string[] = [];
 
-  // If an immediate parent is a DictionarySchema, that means that the object has been marked
+  // If an immediate parent is an empty DictionarySchema, that means that the object has been marked
   // with additional properties. We need to add Record<string, unknown> to the extend list and
-  if (objectSchema.parents.immediate.find(isDictionarySchema)) {
+  if (
+    objectSchema.parents.immediate.find((im) => isDictionarySchema(im, {filterEmpty: true}))
+  ) {
     extendFrom.push("Record<string, unknown>");
   }
 
   // Get the rest of the parents excluding any DictionarySchemas
   const parents = objectSchema.parents.immediate
-    .filter((p) => !isDictionarySchema(p))
+    .filter((p) => !isDictionarySchema(p, {filterEmpty: true}))
     .map((parent) => {
       const nameSuffix = schemaUsage.includes(SchemaContext.Output)
         ? "Output"
         : "";
-      const name = `${normalizeName(
-        parent.name,
-        NameType.Interface,
-        true /** shouldGuard */
-      )}${nameSuffix}`;
+      const name = isDictionarySchema(parent)
+        ? `${
+            (schemaUsage.includes(SchemaContext.Output)
+              ? parent.outputTypeName
+              : parent.typeName) ?? parent.name
+          }`
+        : `${normalizeName(
+            parent.name,
+            NameType.Interface,
+            true /** shouldGuard */
+          )}${nameSuffix}`;
 
       return isObjectSchema(parent) && isPolymorphicParent(parent)
         ? `${name}Parent`
@@ -413,18 +429,40 @@ export function getPropertySignature(
   importedModels: Set<string>
 ): PropertySignatureStructure {
   const propertyName = property.name;
-
   const description = property.description;
-  let type =
-    generateForOutput(schemaUsage, property.usage) && property.outputTypeName
-      ? property.outputTypeName
-      : property.typeName
-      ? property.typeName
-      : property.type;
-  if (property.typeName && property.fromCore) {
-    importedModels.add(property.typeName);
+  let type;
+  const hasCoreInArray =
+    property.type === "array" &&
+    (property as any).items &&
+    (property as any).items.fromCore;
+  const hasCoreInRecord =
+    property.type === "dictionary" &&
+    (property as any).additionalProperties &&
+    (property as any).additionalProperties.fromCore;
+  if (hasCoreInArray && property.typeName) {
     type = property.typeName;
+    importedModels.add(
+      (property as any).items.typeName ?? (property as any).items.name
+    );
+  } else if (hasCoreInRecord && property.typeName) {
+    type = property.typeName;
+    importedModels.add(
+      (property as any).additionalProperties.typeName ??
+        (property as any).additionalProperties.name
+    );
+  } else {
+    type =
+      generateForOutput(schemaUsage, property.usage) && property.outputTypeName
+        ? property.outputTypeName
+        : property.typeName
+        ? property.typeName
+        : property.type;
+    if (property.typeName && property.fromCore) {
+      importedModels.add(property.typeName);
+      type = property.typeName;
+    }
   }
+
   return {
     name: propertyName,
     ...(description && { docs: [{ description }] }),

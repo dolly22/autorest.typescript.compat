@@ -130,7 +130,7 @@ function generateRLCIndexForMultiClient(file: SourceFile, model: RLCModel) {
     });
     exports.push("UnexpectedHelper");
   }
-  
+
   if (hasPollingOperations(model)) {
     file.addImportDeclaration({
       namespaceImport: "PollingHelper",
@@ -311,7 +311,8 @@ function generateRLCIndex(file: SourceFile, model: RLCModel) {
     hasMultiCollection(model) ||
     hasSsvCollection(model) ||
     hasPipeCollection(model) ||
-    hasTsvCollection(model)
+    hasTsvCollection(model) ||
+    hasCsvCollection(model)
   ) {
     file.addExportDeclarations([
       {

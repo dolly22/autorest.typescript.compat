@@ -7,7 +7,8 @@ options:
     generateTest: false
     addCredentials: false
     azureSdkForJs: false
-    isCadlTest: true
+    isTypeSpecTest: true
+    enableOperationGroup: true
     title: InternalClient
     packageDetails:
       name: "@msinternal/internal"

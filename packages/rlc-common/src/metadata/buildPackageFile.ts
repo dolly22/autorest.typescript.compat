@@ -12,16 +12,12 @@ import { RLCModel } from "../interfaces.js";
 
 let hasPaging = false;
 let hasLRO = false;
-let clientFilePaths: string[] = [];
+const clientFilePaths: string[] = [];
 
-export function buildPackageFile(model: RLCModel, hasSamplesGenerated = false) {
-  const generateMetadata = Boolean(model.options?.generateMetadata);
-  if (!generateMetadata) {
-    return;
-  }
+export function buildPackageFile(model: RLCModel) {
   const project = new Project();
   const filePath = "package.json";
-  const packageJsonContents = restLevelPackage(model, hasSamplesGenerated);
+  const packageJsonContents = restLevelPackage(model);
   // return direclty if no content generated
   if (!packageJsonContents) {
     return;
@@ -44,7 +40,7 @@ export function buildPackageFile(model: RLCModel, hasSamplesGenerated = false) {
  * This function defines the REST Level client package.json file
  * or High Level Client
  */
-function restLevelPackage(model: RLCModel, hasSamplesGenerated: boolean) {
+function restLevelPackage(model: RLCModel) {
   if (!model.options || !model.options.packageDetails) {
     return;
   }
@@ -55,15 +51,14 @@ function restLevelPackage(model: RLCModel, hasSamplesGenerated: boolean) {
 
   const {
     packageDetails,
-    generateTest,
-    generateSample,
     azureOutputDirectory,
     azureSdkForJs,
-    isCadlTest,
+    isTypeSpecTest,
     sourceFrom,
     multiClient,
     batch
   } = model.options;
+  let { generateTest, generateSample } = model.options;
   if (
     multiClient &&
     batch &&
@@ -73,8 +68,14 @@ function restLevelPackage(model: RLCModel, hasSamplesGenerated: boolean) {
     return;
   }
 
+  // Take the undefined as true by default
+  generateTest = generateTest === true || generateTest === undefined;
+  generateSample =
+    (generateSample === true || generateSample === undefined) &&
+    (model.sampleGroups ?? []).length > 0;
   const clientPackageName = packageDetails.name;
   let apiRefUrlQueryParameter: string = "";
+  packageDetails.version = packageDetails.version ?? "1.0.0-beta.1";
   if (packageDetails.version.includes("beta")) {
     apiRefUrlQueryParameter = "?view=azure-node-preview";
   }
@@ -91,7 +92,9 @@ function restLevelPackage(model: RLCModel, hasSamplesGenerated: boolean) {
     license: "MIT",
     main: "dist/index.js",
     module: generateTest ? "./dist-esm/src/index.js" : "./dist-esm/index.js",
-    types: `./types/${packageDetails.nameWithoutScope}.d.ts`,
+    types: `./types/${
+      packageDetails.nameWithoutScope ?? packageDetails.name
+    }.d.ts`,
     repository: "github:Azure/azure-sdk-for-js",
     bugs: {
       url: "https://github.com/Azure/azure-sdk-for-js/issues"
@@ -99,13 +102,13 @@ function restLevelPackage(model: RLCModel, hasSamplesGenerated: boolean) {
     files: [
       "dist/",
       generateTest ? "dist-esm/src/" : "dist-esm/",
-      `types/${packageDetails.nameWithoutScope}.d.ts`,
+      `types/${packageDetails.nameWithoutScope ?? packageDetails.name}.d.ts`,
       "README.md",
       "LICENSE",
       "review/*"
     ],
     engines: {
-      node: ">=14.0.0"
+      node: ">=16.0.0"
     },
     scripts: {
       audit:
@@ -120,7 +123,7 @@ function restLevelPackage(model: RLCModel, hasSamplesGenerated: boolean) {
         generateSample
       )}`,
       clean:
-        "rimraf dist dist-browser dist-esm test-dist temp types *.tgz *.log",
+        "rimraf --glob dist dist-browser dist-esm test-dist temp types *.tgz *.log",
       "execute:samples": "echo skipped",
       "extract-api":
         "rimraf review && mkdirp ./review && api-extractor run --local",
@@ -153,27 +156,30 @@ function restLevelPackage(model: RLCModel, hasSamplesGenerated: boolean) {
     autoPublish: false,
     dependencies: {
       "@azure/core-auth": "^1.3.0",
-      "@azure-rest/core-client": "^1.1.3",
-      "@azure/core-rest-pipeline": "^1.8.0",
+      "@azure-rest/core-client": "^1.1.4",
+      "@azure/core-rest-pipeline": "^1.12.0",
       "@azure/logger": "^1.0.0",
       tslib: "^2.2.0",
       ...(hasPaging && {
         "@azure/core-paging": "^1.5.0"
       }),
       ...(hasLRO && {
-        "@azure/core-lro": "^2.5.3",
+        "@azure/core-lro": "^2.5.4",
         "@azure/abort-controller": "^1.0.0"
+      }),
+      ...(model.options.isModularLibrary && {
+        "@azure/core-util": "^1.4.0"
       })
     },
     devDependencies: {
       "@microsoft/api-extractor": "^7.31.1",
       autorest: "latest",
-      "@types/node": "^14.0.0",
+      "@types/node": "^16.0.0",
       dotenv: "^16.0.0",
       eslint: "^8.0.0",
       mkdirp: "^2.1.2",
       prettier: "^2.5.1",
-      rimraf: "^3.0.0",
+      rimraf: "^5.0.0",
       "source-map-support": "^0.5.9",
       typescript: "~5.0.0"
     }
@@ -223,17 +229,18 @@ function restLevelPackage(model: RLCModel, hasSamplesGenerated: boolean) {
     packageInfo.devDependencies["uglify-js"] = "^3.4.9";
   }
 
-  if (isCadlTest) {
+  if (isTypeSpecTest) {
     packageInfo["type"] = "module";
   }
 
   if (generateTest) {
     packageInfo.module = `./dist-esm/src/index.js`;
     packageInfo.devDependencies["@azure-tools/test-credential"] = "^1.0.0";
-    packageInfo.devDependencies["@azure/identity"] = "^2.0.1";
+    packageInfo.devDependencies["@azure/identity"] = "^3.3.0";
     packageInfo.devDependencies["@azure-tools/test-recorder"] = "^3.0.0";
-    packageInfo.devDependencies["mocha"] = "^7.1.1";
-    packageInfo.devDependencies["@types/mocha"] = "^7.0.2";
+    packageInfo.devDependencies["mocha"] = "^10.0.0";
+    packageInfo.devDependencies["esm"] = "^3.2.18";
+    packageInfo.devDependencies["@types/mocha"] = "^10.0.0";
     packageInfo.devDependencies["mocha-junit-reporter"] = "^1.18.0";
     packageInfo.devDependencies["cross-env"] = "^7.0.2";
     packageInfo.devDependencies["@types/chai"] = "^4.2.8";
@@ -242,15 +249,16 @@ function restLevelPackage(model: RLCModel, hasSamplesGenerated: boolean) {
     packageInfo.devDependencies["karma-chrome-launcher"] = "^3.0.0";
     packageInfo.devDependencies["karma-coverage"] = "^2.0.0";
     packageInfo.devDependencies["karma-env-preprocessor"] = "^0.1.1";
-    packageInfo.devDependencies["karma-firefox-launcher"] = "^1.1.0";
+    packageInfo.devDependencies["karma-firefox-launcher"] = "^2.1.2";
     packageInfo.devDependencies["karma-junit-reporter"] = "^2.0.1";
     packageInfo.devDependencies["karma-mocha-reporter"] = "^2.2.5";
     packageInfo.devDependencies["karma-mocha"] = "^2.0.1";
     packageInfo.devDependencies["karma-source-map-support"] = "~1.4.0";
-    packageInfo.devDependencies["karma-sourcemap-loader"] = "^0.3.8";
+    packageInfo.devDependencies["karma-sourcemap-loader"] = "^0.4.0";
     packageInfo.devDependencies["karma"] = "^6.2.0";
     packageInfo.devDependencies["nyc"] = "^15.0.0";
     packageInfo.devDependencies["source-map-support"] = "^0.5.9";
+    packageInfo.devDependencies["ts-node"] = "^10.0.0";
     packageInfo.scripts["test"] =
       "npm run clean && npm run build:test && npm run unit-test";
     packageInfo.scripts["test:node"] =
@@ -264,15 +272,18 @@ function restLevelPackage(model: RLCModel, hasSamplesGenerated: boolean) {
     packageInfo.scripts["build:test"] = "tsc -p . && rollup -c 2>&1";
     packageInfo.scripts["unit-test"] =
       "npm run unit-test:node && npm run unit-test:browser";
-    packageInfo.scripts["unit-test:node"] =
-      'mocha -r esm --require ts-node/register --reporter ../../../common/tools/mocha-multi-reporter.js --timeout 1200000 --full-trace "test/{,!(browser)/**/}*.spec.ts"';
+    packageInfo.scripts[
+      "unit-test:node"
+      // eslint-disable-next-line no-useless-escape
+    ] = `cross-env TS_NODE_COMPILER_OPTIONS="{\\\"module\\\":\\\"commonjs\\\"}" mocha -r esm --require ts-node/register --timeout 1200000 --full-trace "test/{,!(browser)/**/}*.spec.ts"`;
     packageInfo.scripts["unit-test:browser"] = "karma start --single-run";
     packageInfo.scripts["integration-test:browser"] =
       "karma start --single-run";
     packageInfo.scripts["integration-test:node"] =
-      'nyc mocha -r esm --require source-map-support/register --reporter ../../../common/tools/mocha-multi-reporter.js --timeout 5000000 --full-trace "dist-esm/test/{,!(browser)/**/}*.spec.js"';
+      'nyc mocha -r esm --require source-map-support/register --timeout 5000000 --full-trace "dist-esm/test/{,!(browser)/**/}*.spec.js"';
     packageInfo.scripts["integration-test"] =
       "npm run integration-test:node && npm run integration-test:browser";
+
     if (azureSdkForJs) {
       packageInfo.scripts["build:test"] = "tsc -p . && dev-tool run bundle";
       packageInfo.scripts["integration-test:browser"] =
@@ -284,13 +295,26 @@ function restLevelPackage(model: RLCModel, hasSamplesGenerated: boolean) {
         "dev-tool run test:node-js-input -- --timeout 5000000 'dist-esm/test/**/*.spec.js'";
     }
 
+    if (isTypeSpecTest) {
+      // for ESM packages we use ts-node/esm loader and don't need '-r esm --require ts-node/register'
+      packageInfo["mocha"] = {
+        extension: ["ts"],
+        timeout: "1200000",
+        loader: "ts-node/esm"
+      };
+      packageInfo.scripts["unit-test:node"] =
+        'mocha --full-trace "test/{,!(browser)/**/}*.spec.ts"';
+      packageInfo.scripts["integration-test:node"] =
+        'nyc mocha --require source-map-support/register --timeout 5000000 --full-trace "dist-esm/test/{,!(browser)/**/}*.spec.js"';
+    }
+
     packageInfo["browser"] = {
       "./dist-esm/test/public/utils/env.js":
         "./dist-esm/test/public/utils/env.browser.js"
     };
   }
 
-  if (generateSample && hasSamplesGenerated) {
+  if (generateSample) {
     packageInfo["//sampleConfiguration"] = {
       productName: model.options.serviceInfo?.title ?? model.libraryName,
       productSlugs: ["azure"],

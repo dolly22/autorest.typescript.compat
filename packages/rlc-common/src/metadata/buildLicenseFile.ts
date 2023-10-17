@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { RLCModel } from "../interfaces.js";
-
 const mitLicenseText = `
 The MIT License (MIT)
 
@@ -27,11 +25,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 `;
 
-export function buildLicenseFile(model: RLCModel) {
-  const generateMetadata = Boolean(model.options?.generateMetadata);
-  if (!generateMetadata) {
-    return;
-  }
+export function buildLicenseFile() {
   return {
     path: "LICENSE",
     content: mitLicenseText.trim()

@@ -1,6 +1,10 @@
-import { toCamelCase, toPascalCase } from "../../casingUtils.js";
+import { toCamelCase, toPascalCase } from "../../utils/casingUtils.js";
 import { Client, Operation } from "../modularCodeModel.js";
-import { ReservedModelNames, NameType, normalizeName } from "@azure-tools/rlc-common";
+import {
+  ReservedModelNames,
+  NameType,
+  normalizeName
+} from "@azure-tools/rlc-common";
 
 export function getClientName(client: Client) {
   return client.name.replace(/Client$/, "");
@@ -34,6 +38,7 @@ export function getOperationName(
 export function isReservedName(name: string, nameType: NameType): boolean {
   return ReservedModelNames.some(
     (reservedName) =>
-      reservedName.name === name && reservedName.reservedFor.includes(nameType)
+      reservedName.name === name.toLowerCase() &&
+      reservedName.reservedFor.includes(nameType)
   );
 }

@@ -3,33 +3,56 @@ import {
   OptionalKind,
   ParameterDeclarationStructure
 } from "ts-morph";
-import { toPascalCase } from "../../casingUtils.js";
+import { toPascalCase } from "../../utils/casingUtils.js";
 import {
   BodyParameter,
+  ModularCodeModel,
   Operation,
   Parameter,
   Property,
   Type
 } from "../modularCodeModel.js";
 import { buildType } from "./typeHelpers.js";
+import {
+  NameType,
+  OperationResponse,
+  getResponseBaseName,
+  getResponseTypeName,
+  normalizeName
+} from "@azure-tools/rlc-common";
 import { getOperationName } from "./namingHelpers.js";
-import { getFixmeForMultilineDocs } from "./fixmeHelpers.js";
+import {
+  getFixmeForMultilineDocs,
+  getDocsFromDescription
+} from "./docsHelpers.js";
+import {
+  getCollectionFormatHelper,
+  hasCollectionFormatInfo
+} from "../../utils/operationUtil.js";
 
-function getRLCResponseType(operation: Operation) {
-  const { name } = getOperationName(operation, { casing: "pascal" });
-  const statusCodes: (string | number)[] = Array.from(
-    new Set(operation.responses.flatMap((r) => r.statusCodes)).values()
-  );
-
-  statusCodes.push("Default");
-
-  return statusCodes.map((s) => `${name}${s}Response`).join(" | ");
+function getRLCResponseType(rlcResponse?: OperationResponse) {
+  if (!rlcResponse?.responses) {
+    return;
+  }
+  return rlcResponse?.responses
+    .map((resp) => {
+      const baseResponseName = getResponseBaseName(
+        rlcResponse.operationGroup,
+        rlcResponse.operationName,
+        resp.statusCode
+      );
+      // Get the information to build the Response Interface
+      return resp.predefinedName ?? getResponseTypeName(baseResponseName);
+    })
+    .join(" | ");
 }
 
 export function getSendPrivateFunction(
-  operation: Operation
+  operation: Operation,
+  clientType: string,
+  importSet: Map<string, Set<string>>
 ): OptionalKind<FunctionDeclarationStructure> {
-  const parameters = getOperationSignatureParameters(operation);
+  const parameters = getOperationSignatureParameters(operation, clientType);
   const { name } = getOperationName(operation);
 
   const functionStatement: OptionalKind<FunctionDeclarationStructure> = {
@@ -37,7 +60,7 @@ export function getSendPrivateFunction(
     isExported: true,
     name: `_${name}Send`,
     parameters,
-    returnType: `StreamableMethod<${getRLCResponseType(operation)}>`
+    returnType: `StreamableMethod<${getRLCResponseType(operation.rlcResponse)}>`
   };
 
   const operationPath = operation.url;
@@ -47,8 +70,9 @@ export function getSendPrivateFunction(
   statements.push(
     `return context.path("${operationPath}", ${getPathParameters(
       operation
-    )}).${operationMethod}({allowInsecureConnection: options.requestOptions?.allowInsecureConnection, skipUrlEncoding: options.requestOptions?.skipUrlEncoding, ${getRequestParameters(
-      operation
+    )}).${operationMethod}({...operationOptionsToRequestParameters(options), ${getRequestParameters(
+      operation,
+      importSet
     )}});`
   );
 
@@ -59,22 +83,32 @@ export function getSendPrivateFunction(
 }
 
 export function getDeserializePrivateFunction(
-  operation: Operation
+  operation: Operation,
+  needSubClient: boolean,
+  needUnexpectedHelper: boolean,
+  importSet: Map<string, Set<string>>
 ): OptionalKind<FunctionDeclarationStructure> {
   const { name } = getOperationName(operation);
 
   const parameters: OptionalKind<ParameterDeclarationStructure>[] = [
     {
       name: "result",
-      type: getRLCResponseType(operation)
+      type: getRLCResponseType(operation.rlcResponse)
     }
   ];
 
   // TODO: Support operation overloads
   const response = operation.responses[0]!;
-  const returnType = response?.type?.type
-    ? buildType(response.type.name, response.type)
-    : { name: "", type: "void" };
+  let returnType;
+  if (response?.type?.type) {
+    returnType = buildType(
+      response.type.name,
+      response.type,
+      response.type.format
+    );
+  } else {
+    returnType = { name: "", type: "void" };
+  }
 
   const functionStatement: OptionalKind<FunctionDeclarationStructure> = {
     isAsync: true,
@@ -84,24 +118,56 @@ export function getDeserializePrivateFunction(
     returnType: `Promise<${returnType.type}>`
   };
   const statements: string[] = [];
-  statements.push(`if(isUnexpected(result)){`, "throw result.body", "}");
+  if (needUnexpectedHelper) {
+    statements.push(
+      `if(${needSubClient ? "UnexpectedHelper." : ""}isUnexpected(result)){`,
+      "throw result.body",
+      "}"
+    );
+  } else {
+    const validStatus = [
+      ...new Set(
+        operation.responses
+          .flatMap((r) => r.statusCodes)
+          .filter((s) => s !== "default")
+      )
+    ];
+
+    if (validStatus.length > 0) {
+      statements.push(
+        `if(${validStatus
+          .map((s) => `result.status !== "${s}"`)
+          .join(" || ")}){`,
+        "throw result.body",
+        "}"
+      );
+    }
+  }
 
   if (response?.type?.type === "any") {
     statements.push(`return result.body`);
-  } else if (response?.type?.elementType) {
-    statements.push(
-      `return ${deserializeResponseValue(response.type, "result.body")}`
-    );
-  } else if (response?.type?.properties) {
+  } else if (getAllProperties(response?.type).length > 0) {
     statements.push(
       `return {`,
-      getResponseMapping(response.type.properties ?? []).join(","),
+      getResponseMapping(
+        getAllProperties(response.type) ?? [],
+        "result.body",
+        importSet
+      ).join(","),
       `}`
     );
   } else if (returnType.type === "void") {
     statements.push(`return;`);
   } else {
-    statements.push(`return result.body;`);
+    statements.push(
+      `return ${deserializeResponseValue(
+        response.type,
+        "result.body",
+        importSet,
+        response.type.nullable !== undefined ? !response.type.nullable : false,
+        response.type.format
+      )}`
+    );
   }
   return {
     ...functionStatement,
@@ -110,26 +176,14 @@ export function getDeserializePrivateFunction(
 }
 
 function getOperationSignatureParameters(
-  operation: Operation
+  operation: Operation,
+  clientType: string
 ): OptionalKind<ParameterDeclarationStructure>[] {
   const optionsType = getOperationOptionsName(operation);
   const parameters: Map<
     string,
     OptionalKind<ParameterDeclarationStructure>
   > = new Map();
-  if (operation.bodyParameter?.type.type === "model") {
-    (operation.bodyParameter?.type.properties ?? [])
-      .filter((p) => !p.optional)
-      .filter((p) => !p.readonly)
-      .map((p) => buildType(p.clientName, p.type))
-      .forEach((p) => parameters.set(p.name, p));
-  } else if (operation.bodyParameter?.type.type === "list") {
-    const bodyArray = operation.bodyParameter;
-    parameters.set(
-      bodyArray.clientName,
-      buildType(bodyArray.clientName, bodyArray.type)
-    );
-  }
 
   operation.parameters
     .filter(
@@ -139,13 +193,23 @@ function getOperationSignatureParameters(
         p.clientDefaultValue === undefined &&
         !p.optional
     )
-    .map((p) => buildType(p.clientName, p.type))
+    .map((p) => buildType(p.clientName, p.type, p.format))
     .forEach((p) => {
       parameters.set(p.name, p);
     });
 
+  if (operation.bodyParameter) {
+    parameters.set(
+      operation.bodyParameter?.clientName,
+      buildType(
+        operation.bodyParameter.clientName,
+        operation.bodyParameter.type,
+        operation.bodyParameter.type.format
+      )
+    );
+  }
   // Add context as the first parameter
-  const contextParam = { name: "context", type: "Client" };
+  const contextParam = { name: "context", type: clientType };
 
   // Add the options parameter
   const optionsParam = {
@@ -163,24 +227,28 @@ function getOperationSignatureParameters(
  * This operation builds and returns the function declaration for an operation.
  */
 export function getOperationFunction(
-  operation: Operation
+  operation: Operation,
+  clientType: string
 ): OptionalKind<FunctionDeclarationStructure> {
   // Extract required parameters
   const parameters: OptionalKind<ParameterDeclarationStructure>[] =
-    getOperationSignatureParameters(operation);
+    getOperationSignatureParameters(operation, clientType);
 
   // TODO: Support operation overloads
   const response = operation.responses[0]!;
   const returnType = response?.type?.type
-    ? buildType(response.type.name, response.type)
+    ? buildType(response.type.name, response.type, response.type.format)
     : { name: "", type: "void" };
 
   const { name, fixme = [] } = getOperationName(operation);
   const functionStatement: OptionalKind<FunctionDeclarationStructure> = {
-    docs: [operation.description, ...getFixmeForMultilineDocs(fixme)],
+    docs: [
+      ...getDocsFromDescription(operation.description),
+      ...getFixmeForMultilineDocs(fixme)
+    ],
     isAsync: true,
     isExported: true,
-    name: name,
+    name: normalizeName(operation.name, NameType.Operation, true),
     parameters,
     returnType: `Promise<${returnType.type}>`
   };
@@ -198,10 +266,16 @@ export function getOperationFunction(
   };
 }
 
-export function getOperationOptionsName(operation: Operation) {
-  return `${toPascalCase(operation.groupName)}${toPascalCase(
-    operation.name
-  )}Options`;
+export function getOperationOptionsName(
+  operation: Operation,
+  includeGroupName = false
+) {
+  const prefix = includeGroupName ? toPascalCase(operation.groupName) : "";
+  const optionName = `${prefix}${toPascalCase(operation.name)}Options`;
+  if (operation.bodyParameter?.type.name === optionName) {
+    return optionName.replace(/Options$/, "RequestOptions");
+  }
+  return optionName;
 }
 
 /**
@@ -209,11 +283,13 @@ export function getOperationOptionsName(operation: Operation) {
  * RLC internally. This will translate High Level parameters into the RLC ones.
  * Figuring out what goes in headers, body, path and qsp.
  */
-function getRequestParameters(operation: Operation): string {
+function getRequestParameters(
+  operation: Operation,
+  importSet: Map<string, Set<string>>
+): string {
   if (!operation.parameters) {
     return "";
   }
-
   const operationParameters = operation.parameters.filter(
     (p) => p.implementation !== "Client" && !isContentType(p)
   );
@@ -230,8 +306,14 @@ function getRequestParameters(operation: Operation): string {
   };
 
   for (const param of operationParameters) {
-    if (param.location === "header" || param.location === "query") {
-      parametersImplementation[param.location].push(getParameterMap(param));
+    if (
+      param.location === "header" ||
+      param.location === "query" ||
+      param.location === "body"
+    ) {
+      parametersImplementation[param.location].push(
+        getParameterMap(param, importSet)
+      );
     }
   }
 
@@ -241,43 +323,86 @@ function getRequestParameters(operation: Operation): string {
     paramStr = `${getContentTypeValue(contentTypeParameter)},`;
   }
 
-  paramStr = `${paramStr}\nheaders: {${
-    parametersImplementation.header.length
-      ? parametersImplementation.header.join(",\n") + ","
-      : ""
-  } ...options.requestOptions?.headers},`;
+  if (parametersImplementation.header.length) {
+    paramStr = `${paramStr}\nheaders: {${parametersImplementation.header.join(
+      ",\n"
+    )}},`;
+  }
 
   if (parametersImplementation.query.length) {
     paramStr = `${paramStr}\nqueryParameters: {${parametersImplementation.query.join(
       ",\n"
     )}},`;
   }
-
-  paramStr = `${paramStr}${buildBodyParameter(operation.bodyParameter)}`;
-
+  if (
+    operation.bodyParameter === undefined &&
+    parametersImplementation.body.length
+  ) {
+    paramStr = `${paramStr}\nbody: {${parametersImplementation.body.join(
+      ",\n"
+    )}}`;
+  } else if (operation.bodyParameter !== undefined) {
+    paramStr = `${paramStr}${buildBodyParameter(
+      operation.bodyParameter,
+      importSet
+    )}`;
+  }
   return paramStr;
 }
 
-function buildBodyParameter(bodyParameter: BodyParameter | undefined) {
+function buildBodyParameter(
+  bodyParameter: BodyParameter | undefined,
+  importSet: Map<string, Set<string>>
+) {
   if (!bodyParameter) {
     return "";
   }
 
   if (bodyParameter.type.type === "model") {
-    const bodyParts: string[] = [];
-    for (const param of bodyParameter?.type.properties?.filter(
-      (p) => !p.readonly
-    ) ?? []) {
-      bodyParts.push(getParameterMap(param));
-    }
+    const bodyParts: string[] = getRequestModelMapping(
+      bodyParameter.type,
+      bodyParameter.clientName,
+      importSet
+    );
 
-    if (bodyParameter && bodyParameter.type.properties) {
+    if (bodyParameter && bodyParts.length > 0) {
       return `\nbody: {${bodyParts.join(",\n")}},`;
     }
   }
 
   if (bodyParameter.type.type === "list") {
+    if (bodyParameter.type.elementType?.type === "model") {
+      const bodyParts = getRequestModelMapping(
+        bodyParameter.type.elementType,
+        "p",
+        importSet
+      );
+      return `\nbody: (${bodyParameter.clientName} ?? []).map((p) => { return {
+        ${bodyParts.join(", ")}
+      };}),`;
+    }
     return `\nbody: ${bodyParameter.clientName},`;
+  }
+
+  if (bodyParameter.type.type === "byte-array") {
+    const coreUtilSet = importSet.get("@azure/core-util");
+    if (!coreUtilSet) {
+      importSet.set(
+        "@azure/core-util",
+        new Set<string>().add("uint8ArrayToString")
+      );
+    } else {
+      coreUtilSet.add("uint8ArrayToString");
+    }
+    return bodyParameter.optional
+      ? `body: typeof ${bodyParameter.clientName} === 'string'
+    ? uint8ArrayToString(${bodyParameter.clientName}, "${
+          bodyParameter.type.format ?? "base64"
+        }")
+    : ${bodyParameter.clientName}`
+      : `body: uint8ArrayToString(${bodyParameter.clientName}, "${
+          bodyParameter.type.format ?? "base64"
+        }")`;
   }
 
   return "";
@@ -286,24 +411,61 @@ function buildBodyParameter(bodyParameter: BodyParameter | undefined) {
 /**
  * This function helps with renames, translating client names to rest api names
  */
-function getParameterMap(param: Parameter | Property) {
+function getParameterMap(
+  param: Parameter | Property,
+  importSet: Map<string, Set<string>>
+): string {
   if (isConstant(param)) {
     return getConstantValue(param);
   }
 
-  if (isOptionalWithouDefault(param)) {
-    return getOptionalWithoutDefault(param);
+  if (hasCollectionFormatInfo((param as any).location, (param as any).format)) {
+    return getCollectionFormat(param as Parameter, importSet);
   }
 
-  if (isOptionalWithDefault(param)) {
-    return getOptionalWithDefault(param);
+  // if the parameter or property is optional, we don't need to handle the default value
+  if (isOptional(param)) {
+    return getOptional(param, importSet);
   }
 
   if (isRequired(param)) {
-    return getRequired(param);
+    return getRequired(param, importSet);
   }
 
   throw new Error(`Parameter ${param.clientName} is not supported`);
+}
+
+function getCollectionFormat(
+  param: Parameter,
+  importSet: Map<string, Set<string>>
+) {
+  const collectionInfo = getCollectionFormatHelper(
+    param.location,
+    param.format ?? ""
+  );
+  if (!collectionInfo) {
+    throw "Has collection format info but without helper function detected";
+  }
+  const isMulti = (param.format ?? "").toLowerCase() === "multi";
+  const additionalParam = isMulti ? `, "${param.restApiName}"` : "";
+  if (!param.optional) {
+    return `"${param.restApiName}": ${collectionInfo}(${serializeRequestValue(
+      param.type,
+      param.clientName,
+      importSet,
+      true,
+      param.format
+    )}${additionalParam})`;
+  }
+  return `"${param.restApiName}": options?.${
+    param.clientName
+  } !== undefined ? ${collectionInfo}(${serializeRequestValue(
+    param.type,
+    "options?." + param.clientName,
+    importSet,
+    false,
+    param.format
+  )}${additionalParam}): undefined`;
 }
 
 function isContentType(param: Parameter): boolean {
@@ -324,7 +486,7 @@ function getContentTypeValue(param: Parameter | Property) {
   }
 
   if (defaultValue) {
-    return `contentType: (options.${param.clientName} as any) ?? "${defaultValue}"`;
+    return `contentType: options.${param.clientName} as any ?? "${defaultValue}"`;
   } else {
     return `contentType: options.${param.clientName}`;
   }
@@ -338,8 +500,25 @@ function isRequired(param: Parameter | Property): param is RequiredType {
   return !param.optional;
 }
 
-function getRequired(param: RequiredType) {
-  return `"${param.restApiName}": ${param.clientName}`;
+function getRequired(param: RequiredType, importSet: Map<string, Set<string>>) {
+  if (param.type.type === "model") {
+    return `"${param.restApiName}": {${getRequestModelMapping(
+      param.type,
+      param.clientName,
+      importSet
+    ).join(",")}}`;
+  }
+  return `"${param.restApiName}": ${serializeRequestValue(
+    param.type,
+    param.clientName,
+    importSet,
+    true,
+    param.format === undefined &&
+      (param as Parameter).location === "header" &&
+      param.type.type === "datetime"
+      ? "headerDefault"
+      : param.format
+  )}`;
 }
 
 type ConstantType = (Parameter | Property) & {
@@ -365,39 +544,33 @@ function isConstant(param: Parameter | Property): param is ConstantType {
   );
 }
 
-type OptionalWithoutDefaultType = (Parameter | Property) & {
-  type: { optional: true; clientDefaultValue: never };
+type OptionalType = (Parameter | Property) & {
+  type: { optional: true };
 };
-function isOptionalWithouDefault(
-  param: Parameter | Property
-): param is OptionalWithoutDefaultType {
-  return Boolean(param.optional && !param.clientDefaultValue);
-}
-function getOptionalWithoutDefault(param: OptionalWithoutDefaultType) {
-  return `"${param.restApiName}": options?.${param.clientName}`;
+
+function isOptional(param: Parameter | Property): param is OptionalType {
+  return Boolean(param.optional);
 }
 
-type OptionalWithDefaultType = (Parameter | Property) & {
-  type: { optional: true; clientDefaultValue: string };
-};
-function isOptionalWithDefault(
-  param: Parameter | Property
-): param is OptionalWithDefaultType {
-  return Boolean(param.clientDefaultValue);
-}
-
-function getOptionalWithDefault(param: OptionalWithDefaultType) {
-  return `"${param.restApiName}": options.${
-    param.clientName
-  } ?? ${getQuotedValue(param)}`;
-}
-
-function getQuotedValue(param: OptionalWithDefaultType) {
-  if (param.type.type === "string") {
-    return `"${param.clientDefaultValue}"`;
-  } else {
-    return param.clientDefaultValue;
+function getOptional(param: OptionalType, importSet: Map<string, Set<string>>) {
+  if (param.type.type === "model") {
+    return `"${param.restApiName}": {${getRequestModelMapping(
+      param.type,
+      "options?." + param.clientName + "?",
+      importSet
+    ).join(", ")}}`;
   }
+  return `"${param.restApiName}": ${serializeRequestValue(
+    param.type,
+    `options?.${param.clientName}`,
+    importSet,
+    false,
+    param.format === undefined &&
+      (param as Parameter).location === "header" &&
+      param.type.type === "datetime"
+      ? "headerDefault"
+      : param.format
+  )}`;
 }
 
 /**
@@ -424,18 +597,19 @@ function getPathParameters(operation: Operation) {
   for (const param of operation.parameters) {
     if (param.location === "path") {
       if (!param.optional) {
-        pathParams = `${pathParams} ${param.clientName},`;
+        pathParams += `${pathParams !== "" ? "," : ""} ${param.clientName}`;
         continue;
       }
 
       const defaultValue = getDefaultValue(param);
 
-      pathParams = `${pathParams}, options.${param.clientName}`;
+      pathParams += `${pathParams !== "" ? "," : ""} options.${
+        param.clientName
+      }`;
 
       if (defaultValue) {
-        pathParams = ` ?? "${defaultValue}"`;
+        pathParams += ` ?? "${defaultValue}"`;
       }
-      pathParams = `${pathParams},`;
     }
   }
 
@@ -449,40 +623,173 @@ function getNullableCheck(name: string, type: Type) {
 
   return `${name} === null ? null :`;
 }
+
+/**
+ *
+ * This function helps translating an HLC request to RLC request,
+ * extracting properties from body and headers and building the RLC response object
+ */
+function getRequestModelMapping(
+  modelPropertyType: Type,
+  propertyPath: string = "body",
+  importSet: Map<string, Set<string>>
+) {
+  if (getAllProperties(modelPropertyType).length <= 0) {
+    return [];
+  }
+  const props: string[] = [];
+  const properties: Property[] = getAllProperties(modelPropertyType) ?? [];
+  for (const property of properties) {
+    if (property.readonly) {
+      continue;
+    }
+    const propertyFullName = `${propertyPath}.${property.clientName}`;
+    if (property.type.type === "model") {
+      let definition;
+      if (property.type.isCoreErrorType) {
+        definition = `"${property.restApiName}": ${getNullableCheck(
+          propertyFullName,
+          property.type
+        )} ${
+          !property.optional ? "" : `!${propertyFullName} ? undefined :`
+        } ${propertyFullName}`;
+      } else if (
+        (property.restApiName === "message" ||
+          property.restApiName === "messages") &&
+        (property.type.name === "ChatMessage" ||
+          property.type.elementType?.name === "ChatMessage")
+      ) {
+        definition = `"${property.restApiName}": ${
+          !property.optional
+            ? `${propertyFullName} as any`
+            : `!${propertyFullName} ? undefined : ${propertyFullName} as any`
+        }`;
+      } else {
+        definition = `"${property.restApiName}": ${getNullableCheck(
+          propertyFullName,
+          property.type
+        )} ${
+          !property.optional ? "" : `!${propertyFullName} ? undefined :`
+        } {${getRequestModelMapping(
+          property.type,
+          `${propertyPath}.${property.clientName}${
+            property.optional ? "?" : ""
+          }`,
+          importSet
+        )}}`;
+      }
+
+      props.push(definition);
+    } else if (
+      (property.restApiName === "message" ||
+        property.restApiName === "messages") &&
+      (property.type.name === "ChatMessage" ||
+        property.type.elementType?.name === "ChatMessage")
+    ) {
+      const definition = `"${property.restApiName}": ${
+        !property.optional
+          ? `${propertyFullName} as any`
+          : `!${propertyFullName} ? undefined : ${propertyFullName} as any`
+      }`;
+      props.push(definition);
+    } else {
+      const dot = propertyPath.endsWith("?") ? "." : "";
+      const clientValue = `${
+        propertyPath ? `${propertyPath}${dot}` : `${dot}`
+      }["${property.clientName}"]`;
+      props.push(
+        `"${property.restApiName}": ${serializeRequestValue(
+          property.type,
+          clientValue,
+          importSet,
+          !property.optional,
+          property.format
+        )}`
+      );
+    }
+  }
+
+  return props;
+}
+
 /**
  * This function helps translating an RLC response to an HLC response,
  * extracting properties from body and headers and building the HLC response object
  */
-function getResponseMapping(
+export function getResponseMapping(
   properties: Property[],
-  propertyPath: string = "result.body"
+  propertyPath: string = "result.body",
+  importSet: Map<string, Set<string>>
 ) {
   const props: string[] = [];
   for (const property of properties) {
     // TODO: Do we need to also add headers in the result type?
-    const propertyFullName = `${propertyPath}.${property.clientName}`;
+    const propertyFullName = `${propertyPath}.${property.restApiName}`;
     if (property.type.type === "model") {
-      const definition = `"${property.restApiName}": ${getNullableCheck(
-        propertyFullName,
-        property.type
-      )} ${
-        !property.optional ? "" : `!${propertyFullName} ? undefined :`
-      } {${getResponseMapping(
-        property.type.properties ?? [],
-        `${propertyPath}.${property.restApiName}${property.optional ? "?" : ""}`
-      )}}`;
+      let definition;
+      if (property.type.isCoreErrorType) {
+        definition = `"${property.clientName}": ${getNullableCheck(
+          propertyFullName,
+          property.type
+        )} ${
+          !property.optional ? "" : `!${propertyFullName} ? undefined :`
+        } ${propertyFullName}`;
+      } else if (
+        (property.restApiName === "message" ||
+          property.restApiName === "messages") &&
+        (property.type.name === "ChatMessage" ||
+          property.type.elementType?.name === "ChatMessage")
+      ) {
+        definition = `"${property.clientName}": ${
+          !property.optional
+            ? `${propertyFullName} as any`
+            : `!${propertyFullName} ? undefined : ${propertyFullName} as any`
+        }`;
+      } else {
+        definition = `"${property.clientName}": ${getNullableCheck(
+          propertyFullName,
+          property.type
+        )} ${
+          !property.optional ? "" : `!${propertyFullName} ? undefined :`
+        } {${getResponseMapping(
+          getAllProperties(property.type) ?? [],
+          `${propertyPath}.${property.restApiName}${
+            property.optional ? "?" : ""
+          }`,
+          importSet
+        )}}`;
+      }
+
       props.push(definition);
     } else {
       const dot = propertyPath.endsWith("?") ? "." : "";
       const restValue = `${
         propertyPath ? `${propertyPath}${dot}` : `${dot}`
       }["${property.restApiName}"]`;
-      props.push(
-        `"${property.clientName}": ${deserializeResponseValue(
-          property.type,
-          restValue
-        )}`
-      );
+      if (
+        (property.restApiName === "message" ||
+          property.restApiName === "messages") &&
+        (property.type.name === "ChatMessage" ||
+          property.type.elementType?.name === "ChatMessage")
+      ) {
+        props.push(
+          `"${property.clientName}": ${
+            !property.optional
+              ? `${propertyFullName} as any`
+              : `!${propertyFullName} ? undefined : ${propertyFullName} as any`
+          }`
+        );
+      } else {
+        props.push(
+          `"${property.clientName}": ${deserializeResponseValue(
+            property.type,
+            restValue,
+            importSet,
+            property.optional !== undefined ? !property.optional : false,
+            property.format
+          )}`
+        );
+      }
     }
   }
 
@@ -494,32 +801,164 @@ function getResponseMapping(
  * We need to drill down into Array elements to make sure that the element type is
  * deserialized correctly
  */
-function deserializeResponseValue(type: Type, restValue: string): string {
+function deserializeResponseValue(
+  type: Type,
+  restValue: string,
+  importSet: Map<string, Set<string>>,
+  required: boolean,
+  format?: string
+): string {
+  const coreUtilSet = importSet.get("@azure/core-util");
   switch (type.type) {
     case "datetime":
-      return `new Date(${restValue} ?? "")`;
+      return required
+        ? `new Date(${restValue})`
+        : `${restValue} !== undefined? new Date(${restValue}): undefined`;
+    case "combined":
+      return `${restValue} as any`;
     case "list":
       if (type.elementType?.type === "model") {
         return `(${restValue} ?? []).map(p => ({${getResponseMapping(
-          type.elementType?.properties ?? [],
-          "p"
+          getAllProperties(type.elementType) ?? [],
+          "p",
+          importSet
         )}}))`;
-      } else if (
-        type.elementType?.properties?.some((p) => needsDeserialize(p.type))
-      ) {
+      } else if (needsDeserialize(type.elementType)) {
         return `(${restValue} ?? []).map(p => ${deserializeResponseValue(
           type.elementType!,
-          "p"
+          "p",
+          importSet,
+          required,
+          type.elementType?.format
         )})`;
       } else {
         return restValue;
       }
-
+    case "byte-array":
+      if (!coreUtilSet) {
+        importSet.set(
+          "@azure/core-util",
+          new Set<string>().add("stringToUint8Array")
+        );
+      } else {
+        coreUtilSet.add("stringToUint8Array");
+      }
+      return `typeof ${restValue} === 'string'
+      ? stringToUint8Array(${restValue}, "${format ?? "base64"}")
+      : ${restValue}`;
     default:
       return restValue;
   }
 }
 
+/**
+ * This function helps converting strings into JS complex types recursively.
+ * We need to drill down into Array elements to make sure that the element type is
+ * deserialized correctly
+ */
+function serializeRequestValue(
+  type: Type,
+  clientValue: string,
+  importSet: Map<string, Set<string>>,
+  required: boolean,
+  format?: string
+): string {
+  const coreUtilSet = importSet.get("@azure/core-util");
+  switch (type.type) {
+    case "datetime":
+      switch (type.format ?? format) {
+        case "date":
+          return `${clientValue}${required ? "" : "?"}.toDateString()`;
+        case "time":
+          return `${clientValue}${required ? "" : "?"}.toTimeString()`;
+        case "rfc7231":
+        case "headerDefault":
+          return `${clientValue}${required ? "" : "?"}.toUTCString()`;
+        case "unixTimestamp":
+          return `${clientValue}${required ? "" : "?"}.getTime()`;
+        case "rfc3339":
+        default:
+          return `${clientValue}${required ? "" : "?"}.toISOString()`;
+      }
+    case "list":
+      if (type.elementType?.type === "model") {
+        return `(${clientValue} ?? []).map(p => ({${getRequestModelMapping(
+          type.elementType,
+          "p",
+          importSet
+        )}}))`;
+      } else if (needsDeserialize(type.elementType)) {
+        return `(${clientValue} ?? []).map(p => ${serializeRequestValue(
+          type.elementType!,
+          "p",
+          importSet,
+          required,
+          type.elementType?.format
+        )})`;
+      } else {
+        return clientValue;
+      }
+    case "byte-array":
+      if (!coreUtilSet) {
+        importSet.set(
+          "@azure/core-util",
+          new Set<string>().add("uint8ArrayToString")
+        );
+      } else {
+        coreUtilSet.add("uint8ArrayToString");
+      }
+      return required
+        ? `uint8ArrayToString(${clientValue}, "${format ?? "base64"}")`
+        : `${clientValue} !== undefined ? uint8ArrayToString(${clientValue}, "${
+            format ?? "base64"
+          }"): undefined`;
+    default:
+      return clientValue;
+  }
+}
+
 function needsDeserialize(type?: Type) {
-  return type?.type === "datetime" || type?.type === "model";
+  return (
+    type?.type === "datetime" ||
+    type?.type === "model" ||
+    type?.type === "list" ||
+    type?.type === "byte-array"
+  );
+}
+
+export function hasLROOperation(codeModel: ModularCodeModel) {
+  return (codeModel.clients ?? []).some((c) =>
+    (c.operationGroups ?? []).some((og) =>
+      (og.operations ?? []).some(
+        (op) => op.discriminator === "lro" || op.discriminator === "lropaging"
+      )
+    )
+  );
+}
+
+export function hasPagingOperation(codeModel: ModularCodeModel) {
+  return (codeModel.clients ?? []).some((c) =>
+    (c.operationGroups ?? []).some((og) =>
+      (og.operations ?? []).some(
+        (op) =>
+          op.discriminator === "paging" || op.discriminator === "lropaging"
+      )
+    )
+  );
+}
+
+function getAllProperties(type: Type): Property[] {
+  const propertiesMap: Map<string, Property> = new Map();
+  if (!type) {
+    return [];
+  }
+  type.parents?.forEach((p) => {
+    getAllProperties(p).forEach((prop) => {
+      propertiesMap.set(prop.clientName, prop);
+    });
+  });
+  type.properties?.forEach((p) => {
+    propertiesMap.set(p.clientName, p);
+  });
+  return [...propertiesMap.values()];
 }

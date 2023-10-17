@@ -5,16 +5,17 @@ import { Project } from "ts-morph";
 import { RLCModel } from "../interfaces.js";
 
 export function buildApiExtractorConfig(model: RLCModel) {
-  const generateMetadata = Boolean(model.options?.generateMetadata);
-  if (!generateMetadata) {
-    return;
-  }
-  const { generateTest, packageDetails } = model.options || {};
+  let { generateTest } = model.options || {};
+  const { packageDetails, isModularLibrary } = model.options || {};
+  // Take the undefined as true by default
+  generateTest = generateTest === true || generateTest === undefined;
   const project = new Project();
   const config = {
     $schema:
       "https://developer.microsoft.com/json-schemas/api-extractor/v7/api-extractor.schema.json",
-    mainEntryPointFilePath: `./types${generateTest ? "/src" : ""}/index.d.ts`,
+    mainEntryPointFilePath: `./types${
+      generateTest || isModularLibrary ? "/src" : ""
+    }/index.d.ts`,
     docModel: {
       enabled: true
     },
@@ -25,7 +26,9 @@ export function buildApiExtractorConfig(model: RLCModel) {
     dtsRollup: {
       enabled: true,
       untrimmedFilePath: "",
-      publicTrimmedFilePath: `./types/${packageDetails?.nameWithoutScope}.d.ts`
+      publicTrimmedFilePath: `./types/${
+        packageDetails?.nameWithoutScope ?? packageDetails?.name
+      }.d.ts`
     },
     messages: {
       tsdocMessageReporting: {

@@ -1,11 +1,14 @@
 import { assert } from "chai";
-import { emitResponsesFromCadl } from "./util/emitUtil.js";
-import { assertEqualContent } from "./util/testUtil.js";
+import {
+  emitModelsFromTypeSpec,
+  emitResponsesFromTypeSpec
+} from "../util/emitUtil.js";
+import { assertEqualContent } from "../util/testUtil.js";
 
 describe("Responses.ts", () => {
   describe("property name generation", () => {
     it("should generate property name with custome name", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
         model SimpleModel {}
         @doc("Metadata for long running operation status monitor locations")
         model LongRunningStatusLocation {
@@ -36,7 +39,7 @@ describe("Responses.ts", () => {
     });
 
     it("should generate property name without custome name", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
         model SimpleModel {}
         @doc("Metadata for long running operation status monitor locations")
         model LongRunningStatusLocation {
@@ -69,7 +72,7 @@ describe("Responses.ts", () => {
 
   describe("statusCode generation", () => {
     it("should generate property name with custome name", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       @doc("Error")
       @error
       model Error {
@@ -105,7 +108,7 @@ describe("Responses.ts", () => {
 
   describe("body generation", () => {
     it("unknown array response generation", async () => {
-      const parameters = await emitResponsesFromCadl(`
+      const parameters = await emitResponsesFromTypeSpec(`
       @post op read():  unknown[];
       `);
       assert.ok(parameters);
@@ -124,7 +127,7 @@ describe("Responses.ts", () => {
     });
 
     it("Record<SimpleModel> response generation", async () => {
-      const parameters = await emitResponsesFromCadl(`
+      const parameters = await emitResponsesFromTypeSpec(`
       model SimpleModel {
         prop1: string;
         prop2: int32;
@@ -148,7 +151,7 @@ describe("Responses.ts", () => {
     });
 
     it("should generate Record<unknown> as body property", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
         op read(): Record<unknown>;
     `);
       assert.ok(responses);
@@ -166,7 +169,7 @@ describe("Responses.ts", () => {
       );
     });
     it("@header contentType not json or text should set format to binary(finally unit8array)", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       @get op read(): {@header contentType: "image/png", @body body: bytes};
       `);
       assert.ok(responses);
@@ -185,7 +188,7 @@ describe("Responses.ts", () => {
       );
     });
     it("@header contentType text/plain should keep format to byte(finally string)", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       @get op read(): {@header contentType: "text/plain", @body body: bytes};
       `);
       assert.ok(responses);
@@ -202,11 +205,92 @@ describe("Responses.ts", () => {
       `
       );
     });
+
+    it("core error response", async () => {
+      const parameters = await emitResponsesFromTypeSpec(
+        `
+      #suppress "@azure-tools/typespec-azure-core/use-standard-operations" "for testing"
+      #suppress "@azure-tools/typespec-azure-core/use-standard-names" "for testing"
+      @doc("testing")
+      @get op read(): Azure.Core.Foundations.ErrorResponse;
+      `,
+        true
+      );
+      assert.ok(parameters);
+      assertEqualContent(
+        parameters?.content!,
+        `
+        import { RawHttpHeaders } from "@azure/core-rest-pipeline";
+        import { HttpResponse, ErrorResponse } from "@azure-rest/core-client";
+    
+        export interface ReadDefaultHeaders {
+          /** String error code indicating what went wrong. */
+          "x-ms-error-code"?: string; 
+        }
+
+        export interface ReadDefaultResponse extends HttpResponse {
+          status: string;
+          body: ErrorResponse;
+          headers: RawHttpHeaders & ReadDefaultHeaders;
+        }
+      `
+      );
+    });
+
+    it("error response not in core", async () => {
+      const tsp = `
+      model Error {
+        type: string;
+        message: string;
+        param: string | null;
+        code: string | null;
+      }
+      
+      @error
+      model ErrorResponse {
+        error: Error;
+      }
+
+      #suppress "@azure-tools/typespec-azure-core/use-standard-operations" "for testing"
+      #suppress "@azure-tools/typespec-azure-core/use-standard-names" "for testing"
+      @doc("testing")
+      @get op read(): ErrorResponse;
+    `;
+      const parameters = await emitResponsesFromTypeSpec(tsp, false);
+      const models = await emitModelsFromTypeSpec(tsp, false);
+      assert.ok(parameters);
+      assertEqualContent(
+        models?.outputModelFile?.content!,
+        `
+      export interface ErrorResponseOutput {
+        error: ErrorModelOutput;
+      }
+      
+      export interface ErrorModelOutput {
+        type: string;
+        message: string;
+        param: string | null;
+        code: string | null;
+      } `
+      );
+      assertEqualContent(
+        parameters?.content!,
+        `
+        import { HttpResponse } from "@azure-rest/core-client";
+        import { ErrorResponseOutput } from "./outputModels";
+
+        export interface ReadDefaultResponse extends HttpResponse {
+          status: string;
+          body: ErrorResponseOutput;
+        }
+      `
+      );
+    });
   });
 
   describe("headers generation", () => {
     it("merges headers from multiple responses", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       model Key {
         key: string;
       }
@@ -241,7 +325,7 @@ describe("Responses.ts", () => {
 
   describe("Array generation", () => {
     it("verify string array from responses", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       @get op read(): string[];
       `);
       assert.ok(responses);
@@ -260,7 +344,7 @@ describe("Responses.ts", () => {
     });
 
     it("verify int32 array from responses", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       @get op read(): int32[];
       `);
       assert.ok(responses);
@@ -279,7 +363,7 @@ describe("Responses.ts", () => {
     });
 
     it("verify int64 array from responses", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       @get op read(): int64[];
       `);
       assert.ok(responses);
@@ -298,7 +382,7 @@ describe("Responses.ts", () => {
     });
 
     it("verify float32 array from responses", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       @get op read(): float32[];
       `);
       assert.ok(responses);
@@ -317,7 +401,7 @@ describe("Responses.ts", () => {
     });
 
     it("verify boolean array from responses", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       @get op read(): boolean[];
       `);
       assert.ok(responses);
@@ -336,7 +420,7 @@ describe("Responses.ts", () => {
     });
 
     it("verify bytes array from responses", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       @get op read(): bytes[];
       `);
       assert.ok(responses);
@@ -355,7 +439,7 @@ describe("Responses.ts", () => {
     });
 
     it("verify plainDate array from responses", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       @get op read(): plainDate[];
       `);
       assert.ok(responses);
@@ -374,7 +458,7 @@ describe("Responses.ts", () => {
     });
 
     it("verify datetime array from responses", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       @get op read(): utcDateTime[];
       `);
       assert.ok(responses);
@@ -393,7 +477,7 @@ describe("Responses.ts", () => {
     });
 
     it("verify duration array from responses", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       @get op read(): duration[];
       `);
       assert.ok(responses);
@@ -412,7 +496,7 @@ describe("Responses.ts", () => {
     });
 
     it("verify SimpleModel array from responses", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       model SimpleModel {
         prop1: string;
         prop2: int32;
@@ -436,7 +520,7 @@ describe("Responses.ts", () => {
     });
 
     it("verify InnerModel array from responses", async () => {
-      const responses = await emitResponsesFromCadl(`
+      const responses = await emitResponsesFromTypeSpec(`
       model InnerModel {
         property: string;
         children?: InnerModel[];

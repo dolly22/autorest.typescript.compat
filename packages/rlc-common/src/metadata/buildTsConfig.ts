@@ -39,13 +39,14 @@ const restLevelTsConfigNotInAzureSdkForJs: Record<string, any> = {
   include: ["./src/**/*.ts"]
 };
 
-export function buildTsConfig(model: RLCModel, hasSamplesGenerated = false) {
-  const generateMetadata = Boolean(model.options?.generateMetadata);
-  if (!generateMetadata) {
-    return;
-  }
-  const { generateTest, packageDetails, generateSample, azureSdkForJs } =
-    model.options || {};
+export function buildTsConfig(model: RLCModel) {
+  const { packageDetails, azureSdkForJs } = model.options || {};
+  let { generateTest, generateSample } = model.options || {};
+  // Take the undefined as true by default
+  generateTest = generateTest === true || generateTest === undefined;
+  generateSample =
+    (generateSample === true || generateSample === undefined) &&
+    (model.sampleGroups ?? []).length > 0;
   const clientPackageName = packageDetails?.name ?? "";
   const project = new Project();
 
@@ -56,7 +57,7 @@ export function buildTsConfig(model: RLCModel, hasSamplesGenerated = false) {
   if (generateTest) {
     restLevelTsConfig.include.push("./test/**/*.ts");
   }
-  if (generateSample && hasSamplesGenerated) {
+  if (generateSample) {
     restLevelTsConfig.include.push("samples-dev/**/*.ts");
     restLevelTsConfig.compilerOptions["paths"] = {};
     restLevelTsConfig.compilerOptions["paths"][clientPackageName] = [

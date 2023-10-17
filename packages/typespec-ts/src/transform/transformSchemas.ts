@@ -3,7 +3,6 @@
 
 import {
   SdkClient,
-  SdkContext,
   listOperationGroups,
   listOperationsInOperationGroup
 } from "@azure-tools/typespec-client-generator-core";
@@ -14,8 +13,10 @@ import {
   getSchemaForType,
   includeDerivedModel,
   getBodyType,
-  trimUsage
-} from "../modelUtils.js";
+  trimUsage,
+  isAzureCoreErrorType
+} from "../utils/modelUtils.js";
+import { SdkContext } from "../utils/interfaces.js";
 
 export function transformSchemas(
   program: Program,
@@ -54,16 +55,14 @@ export function transformSchemas(
   }
   function transformSchemaForRoute(route: HttpOperation) {
     const bodyModel = getBodyType(program, route);
-    if (bodyModel && bodyModel.kind === "Model") {
+    if (
+      bodyModel &&
+      (bodyModel.kind === "Model" || bodyModel.kind === "Union")
+    ) {
       getGeneratedModels(bodyModel, SchemaContext.Input);
     }
     for (const resp of route.responses) {
-      if (
-        resp.type.kind === "Model" &&
-        resp.type.name === "ErrorResponse" &&
-        resp.type.namespace?.name === "Foundations" &&
-        resp.type.namespace.namespace?.name === "Core"
-      ) {
+      if (isAzureCoreErrorType(resp.type)) {
         continue;
       }
       for (const resps of resp.responses) {
@@ -75,8 +74,8 @@ export function transformSchemas(
       }
     }
   }
-  program.stateMap(modelKey).forEach((context, cadlModel) => {
-    const model = getSchemaForType(program, dpgContext, cadlModel, context);
+  program.stateMap(modelKey).forEach((context, tspModel) => {
+    const model = getSchemaForType(dpgContext, tspModel, context);
     if (model) {
       model.usage = context;
     }
@@ -123,8 +122,12 @@ export function transformSchemas(
 
       setModelMap(model, context);
       const indexer = (model as Model).indexer;
-      if (indexer?.value && !program.stateMap(modelKey).get(indexer?.value)) {
-        setModelMap(indexer.value, context);
+      if (
+        indexer?.value &&
+        (!program.stateMap(modelKey).get(indexer?.value) ||
+          !program.stateMap(modelKey).get(indexer?.value)?.includes(context))
+      ) {
+        getGeneratedModels(indexer.value, context);
       }
       for (const prop of model.properties) {
         if (
@@ -132,7 +135,7 @@ export function transformSchemas(
           (!program.stateMap(modelKey).get(prop[1].type) ||
             !program.stateMap(modelKey).get(prop[1].type)?.includes(context))
         ) {
-          if (prop[1].type.name === "Error") {
+          if (isAzureCoreErrorType(prop[1].type)) {
             continue;
           }
           getGeneratedModels(prop[1].type, context);

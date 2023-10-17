@@ -1,11 +1,12 @@
 import { assert } from "chai";
-import { emitClientFactoryFromCadl } from "./util/emitUtil.js";
-import { assertEqualContent } from "./util/testUtil.js";
+import { emitClientFactoryFromTypeSpec } from "../util/emitUtil.js";
+import { assertEqualContent } from "../util/testUtil.js";
+import { Diagnostic } from "@typespec/compiler";
 
 describe("Client Factory generation", () => {
   describe("should handle url parameters", () => {
     it("should handle zero parameter", async () => {
-      const models = await emitClientFactoryFromCadl(`
+      const models = await emitClientFactoryFromTypeSpec(`
       @server(
         "localhost",
         "Language Service"
@@ -28,7 +29,7 @@ describe("Client Factory generation", () => {
         export default function createClient(options: ClientOptions = {}): testClient {
         const baseUrl = options.baseUrl ?? \`localhost\`;
         
-        const userAgentInfo = \`azsdk-js--rest/1.0.0-beta.1\`;
+        const userAgentInfo = \`azsdk-js-test-rest/1.0.0-beta.1\`;
         const userAgentPrefix =
             options.userAgentOptions && options.userAgentOptions.userAgentPrefix
             ? \`\${options.userAgentOptions.userAgentPrefix} \${userAgentInfo}\`
@@ -51,7 +52,7 @@ describe("Client Factory generation", () => {
       );
     });
     it("should handle one parameter", async () => {
-      const models = await emitClientFactoryFromCadl(`
+      const models = await emitClientFactoryFromTypeSpec(`
           @server(
             "{Endpoint}/language",
             "Language Service",
@@ -83,7 +84,7 @@ describe("Client Factory generation", () => {
           ): testClient {
             const baseUrl = options.baseUrl ?? \`\${endpoint}/language\`;
           
-            const userAgentInfo = \`azsdk-js--rest/1.0.0-beta.1\`;
+            const userAgentInfo = \`azsdk-js-test-rest/1.0.0-beta.1\`;
             const userAgentPrefix =
               options.userAgentOptions && options.userAgentOptions.userAgentPrefix
                 ? \`\${options.userAgentOptions.userAgentPrefix} \${userAgentInfo}\`
@@ -107,7 +108,7 @@ describe("Client Factory generation", () => {
     });
 
     it("should handle two parameters", async () => {
-      const models = await emitClientFactoryFromCadl(
+      const models = await emitClientFactoryFromTypeSpec(
         `
             @server(
               "{Endpoint}/language/{Version}",
@@ -154,7 +155,7 @@ describe("Client Factory generation", () => {
             ): testClient {
               const baseUrl = options.baseUrl ?? \`\${endpoint}/language/\${version}\`;
             
-              const userAgentInfo = \`azsdk-js--rest/1.0.0-beta.1\`;
+              const userAgentInfo = \`azsdk-js-test-rest/1.0.0-beta.1\`;
               const userAgentPrefix =
                 options.userAgentOptions && options.userAgentOptions.userAgentPrefix
                   ? \`\${options.userAgentOptions.userAgentPrefix} \${userAgentInfo}\`
@@ -177,7 +178,7 @@ describe("Client Factory generation", () => {
       );
     });
     it("should handle extensible enums in host parameters", async () => {
-      const models = await emitClientFactoryFromCadl(
+      const models = await emitClientFactoryFromTypeSpec(
         `
             @server(
               "{Endpoint}/language/{Version}",
@@ -221,7 +222,78 @@ describe("Client Factory generation", () => {
             ): testClient {
               const baseUrl = options.baseUrl ?? \`\${endpoint}/language/\${version}\`;
             
-              const userAgentInfo = \`azsdk-js--rest/1.0.0-beta.1\`;
+              const userAgentInfo = \`azsdk-js-test-rest/1.0.0-beta.1\`;
+              const userAgentPrefix =
+                options.userAgentOptions && options.userAgentOptions.userAgentPrefix
+                  ? \`\${options.userAgentOptions.userAgentPrefix} \${userAgentInfo}\`
+                  : \`\${userAgentInfo}\`;
+              options = {
+                ...options,
+                userAgentOptions: {
+                  userAgentPrefix,
+                },
+                loggingOptions: {
+                  logger: options.loggingOptions?.logger ?? logger.info
+                },
+              };
+            
+              const client = getClient(baseUrl, options) as testClient;
+            
+              return client;
+          }
+          `
+      );
+    });
+
+    it("should handle with default value in host parameters", async () => {
+      const models = await emitClientFactoryFromTypeSpec(
+        `
+            @server(
+              "{Endpoint}/language/{Version}",
+              "Language Service",
+              {
+                Endpoint: Endpoint = "http://localhost:3000",
+                Version: Versions
+              }
+            )
+            @service( {title: "PetStoreClient"})
+            namespace PetStore;
+            @doc("The endpoint to use.")
+            scalar Endpoint extends string;
+
+            @doc("The version to use.")
+            enum Versions {
+              @doc("v1.1")
+              v1_1: "v1.1",
+            }
+            `,
+        true
+      );
+      assert.ok(models);
+      assertEqualContent(
+        models!.content,
+        `
+            import { getClient, ClientOptions } from "@azure-rest/core-client";
+            import { logger } from "./logger";
+            import { testClient } from "./clientDefinitions";
+
+            export interface testClientOptions extends ClientOptions {
+              endpoint?: string;
+            }
+
+            /**
+             * Initialize a new instance of \`testClient\`
+             * @param version - The version to use. Possible values: v1.1
+             * @param options - the parameter for all optional parameters
+             */
+            export default function createClient(
+              version: string,
+              options: testClientOptions = {}
+            ): testClient {
+              const endpoint = options.endpoint ?? "http://localhost:3000";
+              const baseUrl = options.baseUrl ?? \`\${endpoint}/language/\${version}\`;
+            
+              const userAgentInfo = \`azsdk-js-test-rest/1.0.0-beta.1\`;
               const userAgentPrefix =
                 options.userAgentOptions && options.userAgentOptions.userAgentPrefix
                   ? \`\${options.userAgentOptions.userAgentPrefix} \${userAgentInfo}\`
@@ -247,7 +319,7 @@ describe("Client Factory generation", () => {
 
   describe("should handle no @server definition", () => {
     it("should set default endpoint parameter when no @server", async () => {
-      const models = await emitClientFactoryFromCadl(`
+      const models = await emitClientFactoryFromTypeSpec(`
       @service( {title: "PetStoreClient"})
       namespace PetStore;
       `);
@@ -267,7 +339,7 @@ describe("Client Factory generation", () => {
         export default function createClient(endpoint: string, options: ClientOptions = {}): testClient {
         const baseUrl = options.baseUrl ?? \`\${endpoint}\`;
         
-        const userAgentInfo = \`azsdk-js--rest/1.0.0-beta.1\`;
+        const userAgentInfo = \`azsdk-js-test-rest/1.0.0-beta.1\`;
         const userAgentPrefix =
             options.userAgentOptions && options.userAgentOptions.userAgentPrefix
             ? \`\${options.userAgentOptions.userAgentPrefix} \${userAgentInfo}\`
@@ -293,7 +365,9 @@ describe("Client Factory generation", () => {
 
   describe("should handle different auth options", () => {
     it("should not generate credential if scope is empty", async () => {
-      const models = await emitClientFactoryFromCadl(`
+      try {
+        await emitClientFactoryFromTypeSpec(
+          `
       @useAuth(
         OAuth2Auth<[{
           type: OAuth2FlowType.implicit,
@@ -302,48 +376,23 @@ describe("Client Factory generation", () => {
         }]>)
       @service( {title: "PetStoreClient"})
       namespace PetStore;
-      `);
-      assert.ok(models);
-      assertEqualContent(
-        models!.content,
-        `
-        import { getClient, ClientOptions } from "@azure-rest/core-client";
-        import { logger } from "./logger";
-        import { testClient } from "./clientDefinitions";
-        
-        /**
-         * Initialize a new instance of \`testClient\`
-         * @param endpoint - The parameter endpoint
-         * @param options - the parameter for all optional parameters
-         */
-        export default function createClient(endpoint: string, options: ClientOptions = {}): testClient {
-        const baseUrl = options.baseUrl ?? \`\${endpoint}\`;
-        
-        const userAgentInfo = \`azsdk-js--rest/1.0.0-beta.1\`;
-        const userAgentPrefix =
-            options.userAgentOptions && options.userAgentOptions.userAgentPrefix
-            ? \`\${options.userAgentOptions.userAgentPrefix} \${userAgentInfo}\`
-            : \`\${userAgentInfo}\`;
-        options = {
-            ...options,
-            userAgentOptions: {
-            userAgentPrefix,
-            },
-            loggingOptions: {
-              logger: options.loggingOptions?.logger ?? logger.info
-            },
-        };
-        
-        const client = getClient(baseUrl, options) as testClient;
-        
-        return client;
-    }
-    `
-      );
+      `,
+          false,
+          false
+        );
+        assert.fail("Should throw diagnostic errors");
+      } catch (e) {
+        const diagnostics = e as Diagnostic[];
+        assert.equal(diagnostics.length, 1);
+        assert.equal(
+          diagnostics[0]?.code,
+          "@azure-tools/typespec-ts/no-credential-scopes"
+        );
+      }
     });
 
     it("should generate both credentials if both defined", async () => {
-      const models = await emitClientFactoryFromCadl(`
+      const models = await emitClientFactoryFromTypeSpec(`
       @useAuth(
         ApiKeyAuth<ApiKeyLocation.header, "apiKey"> |
           OAuth2Auth<[{
@@ -380,7 +429,7 @@ describe("Client Factory generation", () => {
             },
           };
         
-        const userAgentInfo = \`azsdk-js--rest/1.0.0-beta.1\`;
+        const userAgentInfo = \`azsdk-js-test-rest/1.0.0-beta.1\`;
         const userAgentPrefix =
             options.userAgentOptions && options.userAgentOptions.userAgentPrefix
             ? \`\${options.userAgentOptions.userAgentPrefix} \${userAgentInfo}\`

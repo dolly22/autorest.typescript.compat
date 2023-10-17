@@ -7,7 +7,7 @@ import {
   WidgetOutput,
   ResourceOperationStatusOutput,
   OperationStatusOutput,
-  WidgetListOutput,
+  PagedWidgetOutput,
 } from "./outputModels";
 
 /** The request has succeeded. */
@@ -42,12 +42,6 @@ export interface GetWidgetOperationStatusDefaultResponse extends HttpResponse {
   status: string;
   body: ErrorResponse;
   headers: RawHttpHeaders & GetWidgetOperationStatusDefaultHeaders;
-}
-
-/** The final response for long-running getWidgetOperationStatus operation */
-export interface GetWidgetOperationStatusLogicalResponse extends HttpResponse {
-  status: "200";
-  body: ResourceOperationStatusOutput;
 }
 
 export interface CreateOrUpdateWidget200Headers {
@@ -123,7 +117,7 @@ export interface DeleteWidgetLogicalResponse extends HttpResponse {
 /** The request has succeeded. */
 export interface ListWidgets200Response extends HttpResponse {
   status: "200";
-  body: WidgetListOutput;
+  body: PagedWidgetOutput;
 }
 
 export interface ListWidgetsDefaultHeaders {

@@ -1,5 +1,6 @@
 import { OPERATION_LRO_HIGH_PRIORITY, RLCModel } from "./interfaces.js";
 import * as path from "path";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: to fix the handlebars issue
 import hbs from "handlebars";
 import { hasPollingOperations } from "./helpers/operationHelpers.js";
@@ -9,6 +10,7 @@ interface LroDetail {
   clientOverload?: boolean;
   overloadMap?: ResponseMap[];
   importedResponses?: string[];
+  isModularLibrary?: boolean;
 }
 
 interface ResponseMap {
@@ -21,19 +23,20 @@ export function buildPollingHelper(model: RLCModel) {
   if (!hasPollingOperations(model)) {
     return;
   }
-  let overloadDetail: LroDetail = buildOverloadDetail(model);
+  const lroDetail: LroDetail = buildLroHelperDetail(model);
   const readmeFileContents = hbs.compile(pollingContent, { noEscape: true });
   const { srcPath } = model;
   return {
     path: path.join(srcPath, "pollingHelper.ts"),
-    content: readmeFileContents(overloadDetail)
+    content: readmeFileContents(lroDetail)
   };
 }
 
-function buildOverloadDetail(model: RLCModel): LroDetail {
+function buildLroHelperDetail(model: RLCModel): LroDetail {
   if (!model.helperDetails?.clientLroOverload) {
     return {
-      clientOverload: false
+      clientOverload: false,
+      isModularLibrary: model.options?.isModularLibrary
     };
   }
   const mapDetail = [];
@@ -69,6 +72,7 @@ function buildOverloadDetail(model: RLCModel): LroDetail {
   return {
     clientOverload: responses.size > 0 && mapDetail.length > 0,
     importedResponses: Array.from(responses),
-    overloadMap: mapDetail
+    overloadMap: mapDetail,
+    isModularLibrary: model.options?.isModularLibrary
   };
 }

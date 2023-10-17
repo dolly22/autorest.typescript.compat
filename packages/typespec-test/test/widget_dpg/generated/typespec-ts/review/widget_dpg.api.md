@@ -5,7 +5,8 @@
 ```ts
 
 import { ClientOptions } from '@azure-rest/core-client';
-import { RawHttpHeadersInput } from '@azure/core-rest-pipeline';
+import { OperationOptions } from '@azure-rest/core-client';
+import { Pipeline } from '@azure/core-rest-pipeline';
 
 // @public (undocumented)
 export interface AnalyzeResult {
@@ -14,46 +15,44 @@ export interface AnalyzeResult {
 }
 
 // @public (undocumented)
-export interface AnalyzeWidgetOptions extends RequestOptions {
+export interface AnalyzeWidgetOptions extends OperationOptions {
 }
 
 // @public (undocumented)
-export type ColorType = "red" | "blue";
-
-// @public (undocumented)
-export interface CreateWidgetOptions extends RequestOptions {
+export interface CreateWidget {
+    color: "red" | "blue";
+    weight: number;
 }
 
 // @public (undocumented)
-export interface DeleteWidgetOptions extends RequestOptions {
+export interface CreateWidgetOptions extends OperationOptions {
 }
 
 // @public (undocumented)
-export interface GetWidgetOptions extends RequestOptions {
+export interface DeleteWidgetOptions extends OperationOptions {
 }
 
 // @public (undocumented)
-export interface ListWidgetsOptions extends RequestOptions {
-}
-
-// @public
-export interface RequestOptions {
-    requestOptions?: {
-        headers?: RawHttpHeadersInput;
-        allowInsecureConnection?: boolean;
-        skipUrlEncoding?: boolean;
-    };
+export interface GetWidgetOptions extends OperationOptions {
 }
 
 // @public (undocumented)
-export interface UpdateWidgetOptions extends RequestOptions {
-    color?: ColorType;
+export interface ListWidgetsOptions extends OperationOptions {
+}
+
+// @public (undocumented)
+export interface UpdateWidget {
+    color?: "red" | "blue";
     weight?: number;
 }
 
 // @public (undocumented)
+export interface UpdateWidgetOptions extends OperationOptions {
+}
+
+// @public (undocumented)
 export interface Widget {
-    color: ColorType;
+    color: "red" | "blue";
     id: string;
     weight: number;
 }
@@ -62,11 +61,12 @@ export interface Widget {
 export class WidgetServiceClient {
     constructor(endpoint: string, options?: WidgetServiceClientOptions);
     analyzeWidget(id: string, options?: AnalyzeWidgetOptions): Promise<AnalyzeResult>;
-    createWidget(weight: number, color: ColorType, options?: CreateWidgetOptions): Promise<Widget>;
+    createWidget(body: CreateWidget, options?: CreateWidgetOptions): Promise<Widget>;
     deleteWidget(id: string, options?: DeleteWidgetOptions): Promise<void>;
     getWidget(id: string, options?: GetWidgetOptions): Promise<Widget>;
     listWidgets(options?: ListWidgetsOptions): Promise<Widget[]>;
-    updateWidget(id: string, options?: UpdateWidgetOptions): Promise<Widget>;
+    readonly pipeline: Pipeline;
+    updateWidget(id: string, body: UpdateWidget, options?: UpdateWidgetOptions): Promise<Widget>;
 }
 
 // @public (undocumented)

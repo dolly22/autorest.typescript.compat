@@ -2,10 +2,20 @@
 // Licensed under the MIT license.
 
 import {
+  CloudEvent,
+  ReceiveResult,
+  AcknowledgeOptions,
+  AcknowledgeResult,
+  ReleaseOptions,
+  ReleaseResult,
+  RejectOptions,
+  RejectResult,
+} from "../models/models.js";
+import {
+  isUnexpected,
+  EventGridContext as Client,
   AcknowledgeCloudEvents200Response,
   AcknowledgeCloudEventsDefaultResponse,
-  EventGridContext as Client,
-  isUnexpected,
   PublishCloudEvent200Response,
   PublishCloudEventDefaultResponse,
   PublishCloudEvents200Response,
@@ -17,25 +27,24 @@ import {
   ReleaseCloudEvents200Response,
   ReleaseCloudEventsDefaultResponse,
 } from "../rest/index.js";
-import { StreamableMethod } from "@azure-rest/core-client";
 import {
-  CloudEvent,
-  ReceiveResult,
-  AcknowledgeResult,
-  ReleaseResult,
-  RejectResult,
-} from "./models.js";
-import { RequestOptions } from "../common/interfaces.js";
-
-export interface PublishCloudEventOptions extends RequestOptions {
-  /** content type */
-  contentType?: string;
-}
+  StreamableMethod,
+  operationOptionsToRequestParameters,
+} from "@azure-rest/core-client";
+import { uint8ArrayToString, stringToUint8Array } from "@azure/core-util";
+import {
+  PublishCloudEventOptions,
+  PublishCloudEventsOptions,
+  ReceiveCloudEventsOptions,
+  AcknowledgeCloudEventsOptions,
+  ReleaseCloudEventsOptions,
+  RejectCloudEventsOptions,
+} from "../models/options.js";
 
 export function _publishCloudEventSend(
   context: Client,
-  event: CloudEvent,
   topicName: string,
+  event: CloudEvent,
   options: PublishCloudEventOptions = { requestOptions: {} }
 ): StreamableMethod<
   PublishCloudEvent200Response | PublishCloudEventDefaultResponse
@@ -43,13 +52,27 @@ export function _publishCloudEventSend(
   return context
     .path("/topics/{topicName}:publish", topicName)
     .post({
-      allowInsecureConnection: options.requestOptions?.allowInsecureConnection,
-      skipUrlEncoding: options.requestOptions?.skipUrlEncoding,
+      ...operationOptionsToRequestParameters(options),
       contentType:
         (options.contentType as any) ??
         "application/cloudevents+json; charset=utf-8",
-      headers: { ...options.requestOptions?.headers },
-      body: { event: event },
+      body: {
+        event: {
+          id: event["id"],
+          source: event["source"],
+          data: event["data"],
+          data_base64:
+            event["dataBase64"] !== undefined
+              ? uint8ArrayToString(event["dataBase64"], "base64")
+              : undefined,
+          type: event["type"],
+          time: event["time"]?.toISOString(),
+          specversion: event["specversion"],
+          dataschema: event["dataschema"],
+          datacontenttype: event["datacontenttype"],
+          subject: event["subject"],
+        },
+      },
     });
 }
 
@@ -66,43 +89,50 @@ export async function _publishCloudEventDeserialize(
 /** Publish Single Cloud Event to namespace topic. In case of success, the server responds with an HTTP 200 status code with an empty JSON object in response. Otherwise, the server can return various error codes. For example, 401: which indicates authorization failure, 403: which indicates quota exceeded or message is too large, 410: which indicates that specific topic is not found, 400: for bad request, and 500: for internal server error. */
 export async function publishCloudEvent(
   context: Client,
-  event: CloudEvent,
   topicName: string,
+  event: CloudEvent,
   options: PublishCloudEventOptions = { requestOptions: {} }
 ): Promise<Record<string, any>> {
   const result = await _publishCloudEventSend(
     context,
-    event,
     topicName,
+    event,
     options
   );
   return _publishCloudEventDeserialize(result);
 }
 
-export interface PublishCloudEventsOptions extends RequestOptions {
-  /** content type */
-  contentType?: string;
-}
-
 export function _publishCloudEventsSend(
   context: Client,
-  events: CloudEvent[],
   topicName: string,
+  events: CloudEvent[],
   options: PublishCloudEventsOptions = { requestOptions: {} }
 ): StreamableMethod<
   PublishCloudEvents200Response | PublishCloudEventsDefaultResponse
 > {
-  return context
-    .path("/topics/{topicName}:publish", topicName)
-    .post({
-      allowInsecureConnection: options.requestOptions?.allowInsecureConnection,
-      skipUrlEncoding: options.requestOptions?.skipUrlEncoding,
-      contentType:
-        (options.contentType as any) ??
-        "application/cloudevents-batch+json; charset=utf-8",
-      headers: { ...options.requestOptions?.headers },
-      body: events,
-    });
+  return context.path("/topics/{topicName}:publish", topicName).post({
+    ...operationOptionsToRequestParameters(options),
+    contentType:
+      (options.contentType as any) ??
+      "application/cloudevents-batch+json; charset=utf-8",
+    body: (events ?? []).map((p) => {
+      return {
+        id: p["id"],
+        source: p["source"],
+        data: p["data"],
+        data_base64:
+          p["dataBase64"] !== undefined
+            ? uint8ArrayToString(p["dataBase64"], "base64")
+            : undefined,
+        type: p["type"],
+        time: p["time"]?.toISOString(),
+        specversion: p["specversion"],
+        dataschema: p["dataschema"],
+        datacontenttype: p["datacontenttype"],
+        subject: p["subject"],
+      };
+    }),
+  });
 }
 
 export async function _publishCloudEventsDeserialize(
@@ -118,24 +148,17 @@ export async function _publishCloudEventsDeserialize(
 /** Publish Batch Cloud Event to namespace topic. In case of success, the server responds with an HTTP 200 status code with an empty JSON object in response. Otherwise, the server can return various error codes. For example, 401: which indicates authorization failure, 403: which indicates quota exceeded or message is too large, 410: which indicates that specific topic is not found, 400: for bad request, and 500: for internal server error. */
 export async function publishCloudEvents(
   context: Client,
-  events: CloudEvent[],
   topicName: string,
+  events: CloudEvent[],
   options: PublishCloudEventsOptions = { requestOptions: {} }
 ): Promise<Record<string, any>> {
   const result = await _publishCloudEventsSend(
     context,
-    events,
     topicName,
+    events,
     options
   );
   return _publishCloudEventsDeserialize(result);
-}
-
-export interface ReceiveCloudEventsOptions extends RequestOptions {
-  /** Max Events count to be received. Minimum value is 1, while maximum value is 100 events. If not specified, the default value is 1. */
-  maxEvents?: number;
-  /** Max wait time value for receive operation in Seconds. It is the time in seconds that the server approximately waits for the availability of an event and responds to the request. If an event is available, the broker responds immediately to the client. Minimum value is 10 seconds, while maximum value is 120 seconds. If not specified, the default value is 60 seconds. */
-  maxWaitTime?: number;
 }
 
 export function _receiveCloudEventsSend(
@@ -153,9 +176,7 @@ export function _receiveCloudEventsSend(
       eventSubscriptionName
     )
     .post({
-      allowInsecureConnection: options.requestOptions?.allowInsecureConnection,
-      skipUrlEncoding: options.requestOptions?.skipUrlEncoding,
-      headers: { ...options.requestOptions?.headers },
+      ...operationOptionsToRequestParameters(options),
       queryParameters: {
         maxEvents: options?.maxEvents,
         maxWaitTime: options?.maxWaitTime,
@@ -180,9 +201,13 @@ export async function _receiveCloudEventsDeserialize(
         id: p.event["id"],
         source: p.event["source"],
         data: p.event["data"],
-        dataBase64: p.event["data_base64"],
+        dataBase64:
+          typeof p.event["data_base64"] === "string"
+            ? stringToUint8Array(p.event["data_base64"], "base64")
+            : p.event["data_base64"],
         type: p.event["type"],
-        time: new Date(p.event["time"] ?? ""),
+        time:
+          p.event["time"] !== undefined ? new Date(p.event["time"]) : undefined,
         specversion: p.event["specversion"],
         dataschema: p.event["dataschema"],
         datacontenttype: p.event["datacontenttype"],
@@ -208,16 +233,11 @@ export async function receiveCloudEvents(
   return _receiveCloudEventsDeserialize(result);
 }
 
-export interface AcknowledgeCloudEventsOptions extends RequestOptions {
-  /** content type */
-  contentType?: string;
-}
-
 export function _acknowledgeCloudEventsSend(
   context: Client,
-  lockTokens: string[],
   topicName: string,
   eventSubscriptionName: string,
+  lockTokens: AcknowledgeOptions,
   options: AcknowledgeCloudEventsOptions = { requestOptions: {} }
 ): StreamableMethod<
   AcknowledgeCloudEvents200Response | AcknowledgeCloudEventsDefaultResponse
@@ -229,12 +249,10 @@ export function _acknowledgeCloudEventsSend(
       eventSubscriptionName
     )
     .post({
-      allowInsecureConnection: options.requestOptions?.allowInsecureConnection,
-      skipUrlEncoding: options.requestOptions?.skipUrlEncoding,
+      ...operationOptionsToRequestParameters(options),
       contentType:
         (options.contentType as any) ?? "application/json; charset=utf-8",
-      headers: { ...options.requestOptions?.headers },
-      body: { lockTokens: lockTokens },
+      body: { lockTokens: lockTokens["lockTokens"] },
     });
 }
 
@@ -260,31 +278,26 @@ export async function _acknowledgeCloudEventsDeserialize(
 /** Acknowledge batch of Cloud Events. The server responds with an HTTP 200 status code if at least one event is successfully acknowledged. The response body will include the set of successfully acknowledged lockTokens, along with other failed lockTokens with their corresponding error information. Successfully acknowledged events will no longer be available to any consumer. */
 export async function acknowledgeCloudEvents(
   context: Client,
-  lockTokens: string[],
   topicName: string,
   eventSubscriptionName: string,
+  lockTokens: AcknowledgeOptions,
   options: AcknowledgeCloudEventsOptions = { requestOptions: {} }
 ): Promise<AcknowledgeResult> {
   const result = await _acknowledgeCloudEventsSend(
     context,
-    lockTokens,
     topicName,
     eventSubscriptionName,
+    lockTokens,
     options
   );
   return _acknowledgeCloudEventsDeserialize(result);
 }
 
-export interface ReleaseCloudEventsOptions extends RequestOptions {
-  /** content type */
-  contentType?: string;
-}
-
 export function _releaseCloudEventsSend(
   context: Client,
-  lockTokens: string[],
   topicName: string,
   eventSubscriptionName: string,
+  lockTokens: ReleaseOptions,
   options: ReleaseCloudEventsOptions = { requestOptions: {} }
 ): StreamableMethod<
   ReleaseCloudEvents200Response | ReleaseCloudEventsDefaultResponse
@@ -296,12 +309,10 @@ export function _releaseCloudEventsSend(
       eventSubscriptionName
     )
     .post({
-      allowInsecureConnection: options.requestOptions?.allowInsecureConnection,
-      skipUrlEncoding: options.requestOptions?.skipUrlEncoding,
+      ...operationOptionsToRequestParameters(options),
       contentType:
         (options.contentType as any) ?? "application/json; charset=utf-8",
-      headers: { ...options.requestOptions?.headers },
-      body: { lockTokens: lockTokens },
+      body: { lockTokens: lockTokens["lockTokens"] },
     });
 }
 
@@ -325,31 +336,26 @@ export async function _releaseCloudEventsDeserialize(
 /** Release batch of Cloud Events. The server responds with an HTTP 200 status code if at least one event is successfully released. The response body will include the set of successfully released lockTokens, along with other failed lockTokens with their corresponding error information. */
 export async function releaseCloudEvents(
   context: Client,
-  lockTokens: string[],
   topicName: string,
   eventSubscriptionName: string,
+  lockTokens: ReleaseOptions,
   options: ReleaseCloudEventsOptions = { requestOptions: {} }
 ): Promise<ReleaseResult> {
   const result = await _releaseCloudEventsSend(
     context,
-    lockTokens,
     topicName,
     eventSubscriptionName,
+    lockTokens,
     options
   );
   return _releaseCloudEventsDeserialize(result);
 }
 
-export interface RejectCloudEventsOptions extends RequestOptions {
-  /** content type */
-  contentType?: string;
-}
-
 export function _rejectCloudEventsSend(
   context: Client,
-  lockTokens: string[],
   topicName: string,
   eventSubscriptionName: string,
+  lockTokens: RejectOptions,
   options: RejectCloudEventsOptions = { requestOptions: {} }
 ): StreamableMethod<
   RejectCloudEvents200Response | RejectCloudEventsDefaultResponse
@@ -361,12 +367,10 @@ export function _rejectCloudEventsSend(
       eventSubscriptionName
     )
     .post({
-      allowInsecureConnection: options.requestOptions?.allowInsecureConnection,
-      skipUrlEncoding: options.requestOptions?.skipUrlEncoding,
+      ...operationOptionsToRequestParameters(options),
       contentType:
         (options.contentType as any) ?? "application/json; charset=utf-8",
-      headers: { ...options.requestOptions?.headers },
-      body: { lockTokens: lockTokens },
+      body: { lockTokens: lockTokens["lockTokens"] },
     });
 }
 
@@ -390,16 +394,16 @@ export async function _rejectCloudEventsDeserialize(
 /** Reject batch of Cloud Events. */
 export async function rejectCloudEvents(
   context: Client,
-  lockTokens: string[],
   topicName: string,
   eventSubscriptionName: string,
+  lockTokens: RejectOptions,
   options: RejectCloudEventsOptions = { requestOptions: {} }
 ): Promise<RejectResult> {
   const result = await _rejectCloudEventsSend(
     context,
-    lockTokens,
     topicName,
     eventSubscriptionName,
+    lockTokens,
     options
   );
   return _rejectCloudEventsDeserialize(result);

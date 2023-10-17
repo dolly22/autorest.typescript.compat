@@ -1,7 +1,6 @@
 import { PagedResultMetadata } from "@azure-tools/typespec-azure-core";
 import {
   SdkClient,
-  SdkContext,
   listOperationGroups,
   listOperationsInOperationGroup
 } from "@azure-tools/typespec-client-generator-core";
@@ -11,15 +10,16 @@ import { getHttpOperation, HttpOperation } from "@typespec/http";
 import {
   hasPagingOperations,
   extractPagedMetadataNested,
-  hasPollingOperations
-} from "../operationUtil.js";
-import { getSpecialSerializeInfo } from "./transformParameters.js";
+  hasPollingOperations,
+  getSpecialSerializeInfo
+} from "../utils/operationUtil.js";
+import { SdkContext } from "../utils/interfaces.js";
 
 export function transformHelperFunctionDetails(
-  program: Program,
   client: SdkClient,
   dpgContext: SdkContext
 ): HelperFunctionDetails {
+  const program = dpgContext.program;
   // Extract paged metadata from Azure.Core.Page
   const annotationDetails = {
     hasLongRunning: hasPollingOperations(program, client, dpgContext)
@@ -168,12 +168,7 @@ function extractPageDetailFromCore(
 }
 
 function parseNextLinkName(paged: PagedResultMetadata): string | undefined {
-  const pathComponents = paged.nextLinkPath?.split(".");
-  if (pathComponents) {
-    // TODO: This logic breaks down if there actually is a dotted path.
-    return pathComponents[pathComponents.length - 1];
-  }
-  return undefined;
+  return paged.nextLinkProperty?.name;
 }
 
 function parseItemName(paged: PagedResultMetadata): string | undefined {
@@ -204,7 +199,10 @@ function extractSpecialSerializeInfo(
     for (const op of operations) {
       const route = ignoreDiagnostics(getHttpOperation(program, op));
       route.parameters.parameters.forEach((parameter) => {
-        const serializeInfo = getSpecialSerializeInfo(parameter);
+        const serializeInfo = getSpecialSerializeInfo(
+          parameter.type,
+          (parameter as any).format
+        );
         hasMultiCollection = hasMultiCollection
           ? hasMultiCollection
           : serializeInfo.hasMultiCollection;
@@ -227,7 +225,10 @@ function extractSpecialSerializeInfo(
   for (const clientOp of clientOperations) {
     const route = ignoreDiagnostics(getHttpOperation(program, clientOp));
     route.parameters.parameters.forEach((parameter) => {
-      const serializeInfo = getSpecialSerializeInfo(parameter);
+      const serializeInfo = getSpecialSerializeInfo(
+        parameter.type,
+        (parameter as any).format
+      );
       hasMultiCollection = hasMultiCollection
         ? hasMultiCollection
         : serializeInfo.hasMultiCollection;

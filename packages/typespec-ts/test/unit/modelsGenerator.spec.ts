@@ -1,17 +1,14 @@
 import { assert } from "chai";
-import { emitModelsFromCadl, emitParameterFromCadl } from "./util/emitUtil.js";
-import { assertEqualContent } from "./util/testUtil.js";
-
-type VerifyPropertyConfig = {
-  additionalCadlDefinition?: string;
-  outputType?: string;
-  additionalInputContent?: string;
-  additionalOutputContent?: string;
-};
+import {
+  emitModelsFromTypeSpec,
+  emitParameterFromTypeSpec,
+  emitResponsesFromTypeSpec
+} from "../util/emitUtil.js";
+import { VerifyPropertyConfig, assertEqualContent } from "../util/testUtil.js";
 
 describe("Input/output model type", () => {
   it("shouldn't generate models if there is no operations", async () => {
-    const schemaOutput = await emitModelsFromCadl(`
+    const schemaOutput = await emitModelsFromTypeSpec(`
     model Test {
       prop: string;
     }
@@ -24,19 +21,20 @@ describe("Input/output model type", () => {
   });
 
   async function verifyPropertyType(
-    cadlType: string,
+    tspType: string,
     inputType: string,
     options?: VerifyPropertyConfig,
-    needAzureCore: boolean = false
+    needAzureCore: boolean = false,
+    additionalImports: string = ""
   ) {
     const defaultOption: VerifyPropertyConfig = {
-      additionalCadlDefinition: "",
+      additionalTypeSpecDefinition: "",
       outputType: inputType,
       additionalInputContent: "",
       additionalOutputContent: ""
     };
     const {
-      additionalCadlDefinition,
+      additionalTypeSpecDefinition,
       outputType,
       additionalInputContent,
       additionalOutputContent
@@ -44,12 +42,12 @@ describe("Input/output model type", () => {
       ...defaultOption,
       ...options
     };
-    const schemaOutput = await emitModelsFromCadl(
+    const schemaOutput = await emitModelsFromTypeSpec(
       `
-    ${additionalCadlDefinition}
+    ${additionalTypeSpecDefinition}
     #suppress "@azure-tools/typespec-azure-core/documentation-required" "for test"
     model InputOutputModel {
-      prop: ${cadlType};
+      prop: ${tspType};
     }
 
     #suppress "@azure-tools/typespec-azure-core/use-standard-operations" "for test"
@@ -65,6 +63,8 @@ describe("Input/output model type", () => {
     assertEqualContent(
       inputModelFile?.content!,
       `
+    ${additionalImports}
+
     export interface InputOutputModel {
         prop: ${inputType};
     }
@@ -75,6 +75,8 @@ describe("Input/output model type", () => {
     assertEqualContent(
       outputModelFile?.content!,
       `
+    ${additionalImports}
+
     export interface InputOutputModelOutput {
       prop: ${outputType};
     }
@@ -84,43 +86,43 @@ describe("Input/output model type", () => {
 
   describe("null generation", async () => {
     it("should generate null only", async () => {
-      const cadlType = "null";
+      const tspType = "null";
       const typeScriptType = "null";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should generate nullable union", async () => {
-      const cadlType = "string | null";
+      const tspType = "string | null";
       const typeScriptType = "string | null";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should generate nullable array", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       alias nullableArray = int32 | null;`;
-      const cadlType = "nullableArray[]";
+      const tspType = "nullableArray[]";
       const typeScriptType = "(number | null)[]";
-      await verifyPropertyType(cadlType, typeScriptType, {
-        additionalCadlDefinition: cadlDefinition
+      await verifyPropertyType(tspType, typeScriptType, {
+        additionalTypeSpecDefinition: tspDefinition
       });
     });
 
     it("should generate nullable boolean dictionary", async () => {
-      const cadlType = "Record<boolean | null>";
+      const tspType = "Record<boolean | null>";
       const typeScriptType = "Record<string, boolean | null>";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should generate nullable model", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       model SimpleModel {
         color: "red" | "blue";
       }
       `;
-      const cadlType = "SimpleModel | null";
+      const tspType = "SimpleModel | null";
       const typeScriptType = "SimpleModel | null";
-      await verifyPropertyType(cadlType, typeScriptType, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, typeScriptType, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: "SimpleModelOutput | null",
         additionalInputContent: `
         export interface SimpleModel {
@@ -136,9 +138,9 @@ describe("Input/output model type", () => {
     });
 
     it("should generate nullable literal dictionary", async () => {
-      const cadlType = 'Record<"test" | null>';
+      const tspType = 'Record<"test" | null>';
       const typeScriptType = 'Record<string, "test" | null>';
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
   });
 
@@ -162,7 +164,7 @@ describe("Input/output model type", () => {
   describe("string generation", () => {
     it("should handle extensible_enum as property -> string", async () => {
       // When extensible_enum is comsumed as body property it should be string only
-      const schemaOutput = await emitModelsFromCadl(`
+      const schemaOutput = await emitModelsFromTypeSpec(`
       @doc("Extensible enum model description")
       enum TranslationLanguageValues {
         #suppress "@azure-tools/typespec-azure-core/documentation-required" "for test"
@@ -207,7 +209,7 @@ describe("Input/output model type", () => {
     });
     it("should handle extensible_enum as body -> string", async () => {
       // When extensible_enum is comsumed as body property it should be string only
-      const schemaOutput = await emitParameterFromCadl(`
+      const schemaOutput = await emitParameterFromTypeSpec(`
       #suppress "@azure-tools/typespec-azure-core/documentation-required" "for test"
       enum TranslationLanguage {
         English,
@@ -235,58 +237,82 @@ describe("Input/output model type", () => {
       );
     });
 
-    // TODO: Is enum convered to string literals only? Do we need to generate enum instaed?
-    it("should handle enum -> string_literals", async () => {
-      const cadlTypeDefinition = `
-      #suppress "@azure-tools/typespec-azure-core/use-extensible-enum" "for test"
-      @fixed
-      @doc("Translation Language Values")
-      enum TranslationLanguageValues {
-        @doc("English descriptions")
-        English,
-        @doc("Chinese descriptions")
-        Chinese,
-      }`;
-      const cadlType = "TranslationLanguageValues";
-      const typeScriptType = `"English" | "Chinese"`;
-      await verifyPropertyType(
-        cadlType,
-        typeScriptType,
-        {
-          additionalCadlDefinition: cadlTypeDefinition
-        },
-        true
-      );
+    describe("fixed enum", () => {
+      it("should handle enum -> string_literals", async () => {
+        const tspTypeDefinition = `
+        #suppress "@azure-tools/typespec-azure-core/use-extensible-enum" "for test"
+        @fixed
+        @doc("Translation Language Values")
+        enum TranslationLanguageValues {
+          @doc("English descriptions")
+          English,
+          @doc("Chinese descriptions")
+          Chinese,
+        }`;
+        const tspType = "TranslationLanguageValues";
+        const typeScriptType = `"English" | "Chinese"`;
+        await verifyPropertyType(
+          tspType,
+          typeScriptType,
+          {
+            additionalTypeSpecDefinition: tspTypeDefinition
+          },
+          true
+        );
+      });
+
+      it("with enum value is xx.xx", async () => {
+        const tspTypeDefinition = `
+        #suppress "@azure-tools/typespec-azure-core/use-extensible-enum" "for test"
+        @fixed
+        @doc("Translation Language Values")
+        enum TranslationLanguageValues {
+          @doc("English descriptions")
+          \`English.Class\`,
+          @doc("Chinese descriptions")
+          \`Chinese.Class\`,
+        }`;
+        const tspType = "TranslationLanguageValues";
+        const typeScriptType = `"English.Class" | "Chinese.Class"`;
+        await verifyPropertyType(
+          tspType,
+          typeScriptType,
+          {
+            additionalTypeSpecDefinition: tspTypeDefinition
+          },
+          true
+        );
+      });
     });
 
     it("should handle type_literals:string -> string_literals", async () => {
-      const cadlType = `"English" | "Chinese"`;
+      const tspType = `"English" | "Chinese"`;
       const typeScriptType = `"English" | "Chinese"`;
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle type_literals:boolean -> boolean_literals", async () => {
-      const cadlType = `true`;
+      const tspType = `true`;
       const typeScriptType = `true`;
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle string -> string", async () => {
-      const cadlType = "string";
+      const tspType = "string";
       const typeScriptType = "string";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle never, its property will be ignored both in Input and Ouput model", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       model SimpleModel {
         prop1: never;
         prop2: never;
       }`;
-      const cadlType = "SimpleModel";
+      const tspType = "SimpleModel";
       const inputModelName = "SimpleModel";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `${inputModelName}Output`,
         additionalInputContent: `
         export interface ${inputModelName} {}`,
@@ -298,86 +324,86 @@ describe("Input/output model type", () => {
 
   describe("array basic generation", () => {
     it("should handle string[] -> string[]", async () => {
-      const cadlType = "string[]";
+      const tspType = "string[]";
       const typeScriptType = "string[]";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle int32[] -> number[]", async () => {
-      const cadlType = "int32[]";
+      const tspType = "int32[]";
       const typeScriptType = "number[]";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle float32[] -> number[]", async () => {
-      const cadlType = "float32[]";
+      const tspType = "float32[]";
       const typeScriptType = "number[]";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle boolean[] -> boolean[]", async () => {
-      const cadlType = "boolean[]";
+      const tspType = "boolean[]";
       const typeScriptType = "boolean[]";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle bytes[] -> string[]", async () => {
-      const cadlType = "bytes[]";
+      const tspType = "bytes[]";
       const typeScriptType = "string[]";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle plainDate[] -> input 'Date[] | string[]' output type 'string[]'", async () => {
-      const cadlType = "plainDate[]";
+      const tspType = "plainDate[]";
       const inputType = "Date[] | string[]";
       const outputType = "string[]";
-      await verifyPropertyType(cadlType, inputType, { outputType });
+      await verifyPropertyType(tspType, inputType, { outputType });
     });
 
     it("should handle true[] -> true[]", async () => {
-      const cadlType = "true[]";
+      const tspType = "true[]";
       const typeScriptType = "true[]";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle 32[] -> 32[]", async () => {
-      const cadlType = "32[]";
+      const tspType = "32[]";
       const typeScriptType = "32[]";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle 'job'[] -> 'job'[]", async () => {
-      const cadlType = `"job"[]`;
+      const tspType = `"job"[]`;
       const typeScriptType = `"job"[]`;
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle unknown[] -> input 'unknown[]' output type 'any[]'", async () => {
-      const cadlType = "unknown[]";
+      const tspType = "unknown[]";
       const inputType = "unknown[]";
       const outputType = "any[]";
-      await verifyPropertyType(cadlType, inputType, { outputType });
+      await verifyPropertyType(tspType, inputType, { outputType });
     });
 
     it("should handle unknown -> input 'unknown' output type 'any'", async () => {
-      const cadlType = "unknown";
+      const tspType = "unknown";
       const inputType = "unknown";
       const outputType = "any";
-      await verifyPropertyType(cadlType, inputType, { outputType });
+      await verifyPropertyType(tspType, inputType, { outputType });
     });
   });
   describe("array models generation", () => {
     it("should handle SimpleModel[] -> Array<SimpleModel>", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       model SimpleModel {
         prop1: string;
         prop2: int32;
       }
       `;
-      const cadlType = "SimpleModel[]";
+      const tspType = "SimpleModel[]";
       const inputModelName = "Array<SimpleModel>";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `Array<SimpleModelOutput>`,
         additionalInputContent: `
         export interface SimpleModel {
@@ -393,7 +419,7 @@ describe("Input/output model type", () => {
     });
 
     it("should handle fixed enum array", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       #suppress "@azure-tools/typespec-azure-core/use-extensible-enum" "for test"
       #suppress "@azure-tools/typespec-azure-core/documentation-required" "for test"
       @fixed
@@ -402,14 +428,14 @@ describe("Input/output model type", () => {
         TemporaryDisk: "temporarydisk",
       }
       `;
-      const cadlType = "DiskEncryptionTarget[]";
+      const tspType = "DiskEncryptionTarget[]";
       const typeScriptType = `("osdisk" | "temporarydisk")[]`;
       const inputModelName = typeScriptType;
       await verifyPropertyType(
-        cadlType,
+        tspType,
         inputModelName,
         {
-          additionalCadlDefinition: cadlDefinition,
+          additionalTypeSpecDefinition: tspDefinition,
           outputType: typeScriptType
         },
         true
@@ -417,21 +443,21 @@ describe("Input/output model type", () => {
     });
 
     it("should handle extensible enum array", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       #suppress "@azure-tools/typespec-azure-core/documentation-required" "for test"
       enum DiskEncryptionTarget {
         OsDisk: "osdisk",
         TemporaryDisk: "temporarydisk",
       }
       `;
-      const cadlType = "DiskEncryptionTarget[]";
+      const tspType = "DiskEncryptionTarget[]";
       const typeScriptType = `string[]`;
       const inputModelName = typeScriptType;
       await verifyPropertyType(
-        cadlType,
+        tspType,
         inputModelName,
         {
-          additionalCadlDefinition: cadlDefinition,
+          additionalTypeSpecDefinition: tspDefinition,
           outputType: typeScriptType
         },
         true
@@ -440,15 +466,15 @@ describe("Input/output model type", () => {
   });
   describe("object generation", () => {
     it("should handle basic model -> type/interface", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       model SimpleModel {
         prop1: string;
         prop2: int32;
       }`;
-      const cadlType = "SimpleModel";
+      const tspType = "SimpleModel";
       const inputModelName = "SimpleModel";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `${inputModelName}Output`,
         additionalInputContent: `
         export interface ${inputModelName} {
@@ -464,7 +490,7 @@ describe("Input/output model type", () => {
     });
 
     it("should handle nested model -> type/interface", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       model SimpleModel {
         prop1: string;
         prop2: int32;
@@ -473,10 +499,10 @@ describe("Input/output model type", () => {
         ...SimpleModel;
       }
       `;
-      const cadlType = "NestedModel";
+      const tspType = "NestedModel";
       const inputModelName = "NestedModel";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `${inputModelName}Output`,
         additionalInputContent: `
         export interface ${inputModelName} {
@@ -492,16 +518,16 @@ describe("Input/output model type", () => {
     });
 
     it.skip("should handle anonymous model -> effective type/interface", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       model SimpleModel {
         prop1: string;
         prop2: int32;
       }
       `;
-      const cadlType = "{...SimpleModel}";
+      const tspType = "{...SimpleModel}";
       const inputModelName = "SimpleModel";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `${inputModelName}Output`,
         additionalInputContent: `
         export interface ${inputModelName} {
@@ -518,7 +544,7 @@ describe("Input/output model type", () => {
 
     describe("inheritance & polymorphism", () => {
       it("should handle inheritance model -> multiple types/interfaces", async () => {
-        const schemaOutput = await emitModelsFromCadl(`
+        const schemaOutput = await emitModelsFromTypeSpec(`
         @discriminator("kind")
         model Pet {
           name: string;
@@ -544,7 +570,7 @@ describe("Input/output model type", () => {
           export interface PetOutputParent {
             name: string;
             weight?: number;
-            "kind": "Pet" | "cat" | "dog";
+            "kind": string;
           }
   
           export interface CatOutput extends PetOutputParent {
@@ -562,7 +588,7 @@ describe("Input/output model type", () => {
       });
 
       it("should handle multiple inheritance model -> multiple types/interfaces", async () => {
-        const schemaOutput = await emitModelsFromCadl(`
+        const schemaOutput = await emitModelsFromTypeSpec(`
         @doc("This is base model for polymorphic multiple levels inheritance with a discriminator.")
         @discriminator("kind")
         model Fish {
@@ -605,13 +631,13 @@ describe("Input/output model type", () => {
         /** This is base model for polymorphic multiple levels inheritance with a discriminator. */
         export interface FishOutputParent {
           age: number;
-          kind: "Fish" | "shark" | "salmon";
+          kind: string;
         }
         
         /** The second level model in polymorphic multiple levels inheritance and it defines a new discriminator. */
         export interface SharkOutputParent extends FishOutputParent {
           kind: "shark";
-          sharktype: "Shark" | "saw" | "goblin";
+          sharktype: string;
         }
         
         /** The third level model SawShark in polymorphic multiple levels inheritance. */
@@ -641,15 +667,15 @@ describe("Input/output model type", () => {
       });
 
       it("should handle basic model with special words -> type/interface", async () => {
-        const cadlDefinition = `
+        const tspDefinition = `
         model SimpleModel {
           "model.kind": "derived";
           "derived.name": string;
         }`;
-        const cadlType = "SimpleModel";
+        const tspType = "SimpleModel";
         const inputModelName = "SimpleModel";
-        await verifyPropertyType(cadlType, inputModelName, {
-          additionalCadlDefinition: cadlDefinition,
+        await verifyPropertyType(tspType, inputModelName, {
+          additionalTypeSpecDefinition: tspDefinition,
           outputType: `${inputModelName}Output`,
           additionalInputContent: `
           export interface ${inputModelName} {
@@ -665,7 +691,7 @@ describe("Input/output model type", () => {
       });
 
       it("should handle inheritance model with special words -> type/interface", async () => {
-        const cadlDefinition = `
+        const tspDefinition = `
         @doc("This is a base model has discriminator name containing dot.")
         @discriminator("model.kind")
         model BaseModel {}
@@ -677,10 +703,10 @@ describe("Input/output model type", () => {
           "derived.name": string;
           for: string;
         }`;
-        const cadlType = "DerivedModel";
+        const tspType = "DerivedModel";
         const inputModelName = "DerivedModel";
-        await verifyPropertyType(cadlType, inputModelName, {
-          additionalCadlDefinition: cadlDefinition,
+        await verifyPropertyType(tspType, inputModelName, {
+          additionalTypeSpecDefinition: tspDefinition,
           outputType: `${inputModelName}Output`,
           additionalInputContent: `
           /** This is a model has property names of special words or characters. */
@@ -692,7 +718,7 @@ describe("Input/output model type", () => {
           
           /** This is a base model has discriminator name containing dot. */
           export interface BaseModelParent {
-            "model.kind": "BaseModel" | "derived";
+            "model.kind": string;
           }
   
           /** This is a base model has discriminator name containing dot. */
@@ -708,7 +734,7 @@ describe("Input/output model type", () => {
           
           /** This is a base model has discriminator name containing dot. */
           export interface BaseModelOutputParent {
-            "model.kind": "BaseModel" | "derived";
+            "model.kind": string;
           }
   
           /** This is a base model has discriminator name containing dot. */
@@ -716,8 +742,563 @@ describe("Input/output model type", () => {
           `
         });
       });
+
+      describe("enum and enum member as discriminator", () => {
+        describe("is string", () => {
+          const typespec = (hasDiscriminator: boolean) => `
+          enum A {
+            AA,
+            BB,
+          }
+          ${hasDiscriminator ? '@discriminator("a")' : ""}
+          model B {
+            a: A,
+          } 
+          model C extends B {
+            a: A.AA,
+          }
+          op read(): { @body body: C };
+          `;
+          it("with @discriminator", async () => {
+            const schemaOutput = await emitModelsFromTypeSpec(typespec(true));
+            assert.ok(schemaOutput);
+            const { inputModelFile, outputModelFile } = schemaOutput!;
+            assert.ok(!inputModelFile?.content);
+            assert.strictEqual(outputModelFile?.path, "outputModels.ts");
+            assertEqualContent(
+              outputModelFile?.content!,
+              `
+            export interface COutput extends BOutputParent {
+              a: "AA";
+            }
+
+            export interface BOutputParent {
+              a: string;
+            }
+
+            export type BOutput = COutput;`
+            );
+          });
+
+          it("without @discriminator", async () => {
+            const schemaOutput = await emitModelsFromTypeSpec(typespec(false));
+            assert.ok(schemaOutput);
+            const { inputModelFile, outputModelFile } = schemaOutput!;
+            assert.ok(!inputModelFile?.content);
+            assert.strictEqual(outputModelFile?.path, "outputModels.ts");
+            assertEqualContent(
+              outputModelFile?.content!,
+              `
+            export interface COutput extends BOutput {
+              a: "AA";
+            }
+    
+            export interface BOutput {
+              /** Possible values: AA, BB */
+              a: string;
+            }`
+            );
+          });
+        });
+
+        describe("is number", () => {
+          const typespec = (hasDiscriminator: boolean) => `
+          enum A {
+            AA: 1.1,
+            BB: 2.2,
+          }
+          ${hasDiscriminator ? '@discriminator("a")' : ""}
+          model B {
+            a: A,
+          }
+          model C extends B {
+            a: A.AA,
+          }
+          op read(): { @body body: C };
+          `;
+
+          it("without @discriminator", async () => {
+            const schemaOutput = await emitModelsFromTypeSpec(typespec(false));
+            assert.ok(schemaOutput);
+            const { inputModelFile, outputModelFile } = schemaOutput!;
+            assert.ok(!inputModelFile?.content);
+            assert.strictEqual(outputModelFile?.path, "outputModels.ts");
+            assertEqualContent(
+              outputModelFile?.content!,
+              `
+            export interface COutput extends BOutput {
+              a: 1.1;
+            }
+    
+            export interface BOutput {
+              /** Possible values: 1.1, 2.2 */
+              a: string;
+            }`
+            );
+          });
+        });
+      });
     });
   });
+  describe("additional properties generation", () => {
+    it("should handle model additional properties from record of unknown", async () => {
+      const schemaOutput = await emitModelsFromTypeSpec(`
+      model VegetableCarrot extends Record<unknown> {}
+      model VegetableBeans extends Record<unknown> {}
+      
+      model Vegetables {
+        carrots: VegetableCarrot,
+        beans: VegetableBeans
+      }
+      op post(@body body: Vegetables): { @body body: Vegetables };
+      `);
+      assert.ok(schemaOutput);
+      const { inputModelFile, outputModelFile } = schemaOutput!;
+      assert.ok(inputModelFile);
+      assert.strictEqual(inputModelFile?.path, "models.ts");
+      assertEqualContent(
+        inputModelFile?.content!,
+        `
+        export interface Vegetables {
+          carrots: VegetableCarrot;
+          beans: VegetableBeans;
+        }
+        
+        export interface VegetableCarrot extends Record<string, unknown> {}
+        
+        export interface VegetableBeans extends Record<string, unknown> {}
+        `
+      );
+
+      assert.ok(outputModelFile);
+      assert.strictEqual(outputModelFile?.path, "outputModels.ts");
+      assertEqualContent(
+        outputModelFile?.content!,
+        `
+        export interface VegetablesOutput {
+          carrots: VegetableCarrotOutput;
+          beans: VegetableBeansOutput;
+        }
+        
+        export interface VegetableCarrotOutput extends Record<string, any> {}
+        
+        export interface VegetableBeansOutput extends Record<string, any> {}
+        `
+      );
+    });
+
+    it("should handle model additional properties from record of boolean", async () => {
+      const schemaOutput = await emitModelsFromTypeSpec(`
+      model VegetableCarrot extends Record<boolean> {}
+      model VegetableBeans extends Record<boolean> {}
+      
+      model Vegetables {
+        carrots: VegetableCarrot,
+        beans: VegetableBeans
+      }
+      op post(@body body: Vegetables): { @body body: Vegetables };
+      `);
+      assert.ok(schemaOutput);
+      const { inputModelFile, outputModelFile } = schemaOutput!;
+      assert.ok(inputModelFile);
+      assert.strictEqual(inputModelFile?.path, "models.ts");
+      assertEqualContent(
+        inputModelFile?.content!,
+        `
+        export interface Vegetables {
+          carrots: VegetableCarrot;
+          beans: VegetableBeans;
+        }
+        
+        export interface VegetableCarrot extends Record<string, boolean> {}
+        
+        export interface VegetableBeans extends Record<string, boolean> {}
+        `
+      );
+
+      assert.ok(outputModelFile);
+      assert.strictEqual(outputModelFile?.path, "outputModels.ts");
+      assertEqualContent(
+        outputModelFile?.content!,
+        `
+        export interface VegetablesOutput {
+          carrots: VegetableCarrotOutput;
+          beans: VegetableBeansOutput;
+        }
+        
+        export interface VegetableCarrotOutput extends Record<string, boolean> {}
+        
+        export interface VegetableBeansOutput extends Record<string, boolean> {}
+        `
+      );
+    });
+    
+    it("should handle model additional properties from record of float32", async () => {
+      const schemaOutput = await emitModelsFromTypeSpec(`
+      model VegetableCarrot extends Record<float32> {}
+      model VegetableBeans extends Record<float32> {}
+      
+      model Vegetables {
+        carrots: VegetableCarrot,
+        beans: VegetableBeans
+      }
+      op post(@body body: Vegetables): { @body body: Vegetables };
+      `);
+      assert.ok(schemaOutput);
+      const { inputModelFile, outputModelFile } = schemaOutput!;
+      assert.ok(inputModelFile);
+      assert.strictEqual(inputModelFile?.path, "models.ts");
+      assertEqualContent(
+        inputModelFile?.content!,
+        `
+        export interface Vegetables {
+          carrots: VegetableCarrot;
+          beans: VegetableBeans;
+        }
+        
+        export interface VegetableCarrot extends Record<string, number> {}
+        
+        export interface VegetableBeans extends Record<string, number> {}
+        `
+      );
+
+      assert.ok(outputModelFile);
+      assert.strictEqual(outputModelFile?.path, "outputModels.ts");
+      assertEqualContent(
+        outputModelFile?.content!,
+        `
+        export interface VegetablesOutput {
+          carrots: VegetableCarrotOutput;
+          beans: VegetableBeansOutput;
+        }
+        
+        export interface VegetableCarrotOutput extends Record<string, number> {}
+        
+        export interface VegetableBeansOutput extends Record<string, number> {}
+        `
+      );
+    });
+
+    it("should handle model additional properties from record of int64", async () => {
+      const schemaOutput = await emitModelsFromTypeSpec(`
+      model VegetableCarrot extends Record<int64> {}
+      model VegetableBeans extends Record<int64> {}
+      
+      model Vegetables {
+        carrots: VegetableCarrot,
+        beans: VegetableBeans
+      }
+      op post(@body body: Vegetables): { @body body: Vegetables };
+      `);
+      assert.ok(schemaOutput);
+      const { inputModelFile, outputModelFile } = schemaOutput!;
+      assert.ok(inputModelFile);
+      assert.strictEqual(inputModelFile?.path, "models.ts");
+      assertEqualContent(
+        inputModelFile?.content!,
+        `
+        export interface Vegetables {
+          carrots: VegetableCarrot;
+          beans: VegetableBeans;
+        }
+        
+        export interface VegetableCarrot extends Record<string, number> {}
+        
+        export interface VegetableBeans extends Record<string, number> {}
+        `
+      );
+
+      assert.ok(outputModelFile);
+      assert.strictEqual(outputModelFile?.path, "outputModels.ts");
+      assertEqualContent(
+        outputModelFile?.content!,
+        `
+        export interface VegetablesOutput {
+          carrots: VegetableCarrotOutput;
+          beans: VegetableBeansOutput;
+        }
+        
+        export interface VegetableCarrotOutput extends Record<string, number> {}
+        
+        export interface VegetableBeansOutput extends Record<string, number> {}
+        `
+      );
+    });
+
+    it("should handle model additional properties from record of string", async () => {
+      const schemaOutput = await emitModelsFromTypeSpec(`
+      model VegetableCarrot extends Record<string> {}
+      model VegetableBeans extends Record<string> {}
+      
+      model Vegetables {
+        carrots: VegetableCarrot,
+        beans: VegetableBeans
+      }
+      op post(@body body: Vegetables): { @body body: Vegetables };
+      `);
+      assert.ok(schemaOutput);
+      const { inputModelFile, outputModelFile } = schemaOutput!;
+      assert.ok(inputModelFile);
+      assert.strictEqual(inputModelFile?.path, "models.ts");
+      assertEqualContent(
+        inputModelFile?.content!,
+        `
+        export interface Vegetables {
+          carrots: VegetableCarrot;
+          beans: VegetableBeans;
+        }
+        
+        export interface VegetableCarrot extends Record<string, string> {}
+        
+        export interface VegetableBeans extends Record<string, string> {}
+        `
+      );
+
+      assert.ok(outputModelFile);
+      assert.strictEqual(outputModelFile?.path, "outputModels.ts");
+      assertEqualContent(
+        outputModelFile?.content!,
+        `
+        export interface VegetablesOutput {
+          carrots: VegetableCarrotOutput;
+          beans: VegetableBeansOutput;
+        }
+        
+        export interface VegetableCarrotOutput extends Record<string, string> {}
+        
+        export interface VegetableBeansOutput extends Record<string, string> {}
+        `
+      );
+    });
+
+    it("should handle model additional properties extends from record of object", async () => {
+      const schemaOutput = await emitModelsFromTypeSpec(`
+      model VegetableCarrot extends Record<Carrots> {
+        testProp: Carrots
+      }
+      model VegetableBeans extends Record<Beans> {}
+      
+      model Vegetables {
+        carrots: VegetableCarrot,
+        beans: VegetableBeans
+      }
+      model Carrots {
+        color: string,
+        id: string
+      }
+      model Beans {
+        expiry: string,
+        id: string
+      }
+      op post(@body body: Vegetables): { @body body: Vegetables };
+      `);
+      assert.ok(schemaOutput);
+      const { inputModelFile, outputModelFile } = schemaOutput!;
+      assert.ok(inputModelFile);
+      assert.strictEqual(inputModelFile?.path, "models.ts");
+      assertEqualContent(
+        inputModelFile?.content!,
+        `
+        export interface Vegetables {
+          carrots: VegetableCarrot;
+          beans: VegetableBeans;
+        }
+        
+        export interface VegetableCarrot extends Record<string, Carrots> {
+          testProp: Carrots;
+        }
+
+        export interface Carrots {
+          color: string;
+          id: string;
+        }
+        
+        export interface VegetableBeans extends Record<string, Beans> {}
+        
+        export interface Beans {
+          expiry: string;
+          id: string;
+        }`
+      );
+
+      assert.ok(outputModelFile);
+      assert.strictEqual(outputModelFile?.path, "outputModels.ts");
+      assertEqualContent(
+        outputModelFile?.content!,
+        `
+        export interface VegetablesOutput {
+          carrots: VegetableCarrotOutput;
+          beans: VegetableBeansOutput;
+        }
+        
+        export interface VegetableCarrotOutput extends Record<string, CarrotsOutput> {
+          testProp: CarrotsOutput;
+        }
+
+        export interface CarrotsOutput {
+          color: string;
+          id: string;
+        }
+        
+        export interface VegetableBeansOutput extends Record<string, BeansOutput> {}
+        
+        export interface BeansOutput {
+          expiry: string;
+          id: string;
+        }`
+      );
+    });
+
+    it("should handle model additional properties is from record of object", async () => {
+      const schemaOutput = await emitModelsFromTypeSpec(`
+      model VegetableCarrot is Record<Carrots> {
+        testProp: Carrots
+      }
+      model VegetableBeans is Record<Beans> {}
+      
+      model Vegetables {
+        carrots: VegetableCarrot,
+        beans: VegetableBeans
+      }
+      model Carrots {
+        color: string,
+        id: string
+      }
+      model Beans {
+        expiry: string,
+        id: string
+      }
+      op post(@body body: Vegetables): { @body body: Vegetables };
+      `);
+      assert.ok(schemaOutput);
+      const { inputModelFile, outputModelFile } = schemaOutput!;
+      assert.ok(inputModelFile);
+      assert.strictEqual(inputModelFile?.path, "models.ts");
+      assertEqualContent(
+        inputModelFile?.content!,
+        `
+        export interface Vegetables {
+          carrots: VegetableCarrot;
+          beans: VegetableBeans;
+        }
+
+        export interface VegetableCarrot extends Record<string, Carrots> {
+          testProp: Carrots;
+        }
+
+        export interface Carrots {
+          color: string;
+          id: string;
+        }
+        
+        export interface VegetableBeans extends Record<string, Beans> {}
+
+        export interface Beans {
+          expiry: string;
+          id: string;
+        }`
+      );
+
+      assert.ok(outputModelFile);
+      assert.strictEqual(outputModelFile?.path, "outputModels.ts");
+      assertEqualContent(
+        outputModelFile?.content!,
+        `
+        export interface VegetablesOutput {
+          carrots: VegetableCarrotOutput;
+          beans: VegetableBeansOutput;
+        }
+
+        export interface VegetableCarrotOutput extends Record<string, CarrotsOutput> {
+          testProp: CarrotsOutput;
+        }
+        
+        export interface CarrotsOutput {
+          color: string;
+          id: string;
+        }
+
+        export interface VegetableBeansOutput extends Record<string, BeansOutput> {}
+
+        export interface BeansOutput {
+          expiry: string;
+          id: string;
+        }`
+      );
+    });
+
+    it("should handle model additional properties from record of object array", async () => {
+      const schemaOutput = await emitModelsFromTypeSpec(`
+      model VegetableCarrot extends Record<Carrots[]> {}
+      model VegetableBeans extends Record<Beans[]> {}
+      
+      model Vegetables {
+        carrots: VegetableCarrot,
+        beans: VegetableBeans
+      }
+      model Carrots {
+        color: string,
+        id: string
+      }
+      model Beans {
+        expiry: string,
+        id: string
+      }
+      op read(@body body: Vegetables): { @body body: Vegetables };
+      `);
+      assert.ok(schemaOutput);
+      const { inputModelFile, outputModelFile } = schemaOutput!;
+      assert.ok(inputModelFile);
+      assert.strictEqual(inputModelFile?.path, "models.ts");
+      assertEqualContent(
+        inputModelFile?.content!,
+        `
+        export interface Vegetables {
+          carrots: VegetableCarrot;
+          beans: VegetableBeans;
+        }
+        
+        export interface VegetableCarrot extends Record<string, Array<Carrots>> {}
+
+        export interface Carrots {
+          color: string;
+          id: string;
+        }
+        
+        export interface VegetableBeans extends Record<string, Array<Beans>> {}
+        
+        export interface Beans {
+          expiry: string;
+          id: string;
+        }`
+      );
+
+      assert.ok(outputModelFile);
+      assert.strictEqual(outputModelFile?.path, "outputModels.ts");
+      assertEqualContent(
+        outputModelFile?.content!,
+        `
+        export interface VegetablesOutput {
+          carrots: VegetableCarrotOutput;
+          beans: VegetableBeansOutput;
+        }
+        
+        export interface VegetableCarrotOutput extends Record<string, Array<CarrotsOutput>> {}
+
+        export interface CarrotsOutput {
+          color: string;
+          id: string;
+        }
+        
+        export interface VegetableBeansOutput extends Record<string, Array<BeansOutput>> {}
+        
+        export interface BeansOutput {
+          expiry: string;
+          id: string;
+        }`
+      );
+    });
+  })
   describe("bytes generation as property", () => {
     it("should handle bytes -> string", async () => {
       await verifyPropertyType("bytes", "string");
@@ -746,7 +1327,7 @@ describe("Input/output model type", () => {
       });
 
       it("should handle duration with encode `seconds`", async () => {
-        const schemaOutput = await emitModelsFromCadl(
+        const schemaOutput = await emitModelsFromTypeSpec(
           `
         model SimpleModel {
           @encode("seconds", float64)
@@ -780,7 +1361,7 @@ describe("Input/output model type", () => {
       });
 
       it("should handle duration with encode `iso8601`", async () => {
-        const schemaOutput = await emitModelsFromCadl(
+        const schemaOutput = await emitModelsFromTypeSpec(
           `
         model SimpleModel {
           @encode("ISO8601")
@@ -814,7 +1395,7 @@ describe("Input/output model type", () => {
       });
 
       it("should handle duration in type with encode `float32`", async () => {
-        const schemaOutput = await emitModelsFromCadl(
+        const schemaOutput = await emitModelsFromTypeSpec(
           `
         @encode(DurationKnownEncoding.seconds, float32)
         scalar Float32Duration extends duration;
@@ -851,7 +1432,7 @@ describe("Input/output model type", () => {
 
     describe("as query parameter", () => {
       it("should handle duration without encode", async () => {
-        const schemaOutput = await emitParameterFromCadl(`
+        const schemaOutput = await emitParameterFromTypeSpec(`
         @route("/duration/query/default")
         @get
         op getModel(@query input: duration): NoContentResponse;
@@ -861,7 +1442,7 @@ describe("Input/output model type", () => {
       });
 
       it("should handle duration with encode `seconds`", async () => {
-        const schemaOutput = await emitParameterFromCadl(
+        const schemaOutput = await emitParameterFromTypeSpec(
           `
         @route("/duration/query/seconds")
         @get
@@ -879,7 +1460,7 @@ describe("Input/output model type", () => {
       });
 
       it("should handle duration with encode `iso8601`", async () => {
-        const schemaOutput = await emitParameterFromCadl(
+        const schemaOutput = await emitParameterFromTypeSpec(
           `
         @route("/duration/query/iso8601")
         @get
@@ -921,7 +1502,7 @@ describe("Input/output model type", () => {
     });
 
     it("should handle offsetDateTime  -> string in output model &  `Date | string` in input model", async () => {
-      const inputType = "Date | string";
+      const inputType = "string";
       const outputType = "string";
       await verifyPropertyType("offsetDateTime ", inputType, {
         outputType
@@ -929,7 +1510,7 @@ describe("Input/output model type", () => {
     });
 
     it("should handle datetime with encode `unixTimestamp`", async () => {
-      const schemaOutput = await emitModelsFromCadl(
+      const schemaOutput = await emitModelsFromTypeSpec(
         `
       model SimpleModel {
         @encode("unixTimestamp", int32)
@@ -963,7 +1544,7 @@ describe("Input/output model type", () => {
     });
 
     it("should handle datetime with encode `rfc3339`", async () => {
-      const schemaOutput = await emitModelsFromCadl(
+      const schemaOutput = await emitModelsFromTypeSpec(
         `
         model SimpleModel {
           @encode("rfc3339")
@@ -982,7 +1563,7 @@ describe("Input/output model type", () => {
         inputModelFile?.content!,
         `
       export interface SimpleModel { 
-        "createdAt": Date | string;
+        "createdAt": string;
       }
       `
       );
@@ -1007,25 +1588,47 @@ describe("Input/output model type", () => {
       await verifyPropertyType("Record<string>", "Record<string, string>");
     });
     it("should handle Record<unknown> -> input 'Record<unknown>' output type 'Record<any>'", async () => {
-      const cadlType = "Record<unknown>";
+      const tspType = "Record<unknown>";
       const inputType = "Record<string, unknown>";
       const outputType = "Record<string, any>";
-      await verifyPropertyType(cadlType, inputType, { outputType });
+      await verifyPropertyType(tspType, inputType, { outputType });
+    });
+
+    it("should handle record of empty object Record<{}> -> input Record<string, Record<string, unknown>>, output Record<string, Record<string, any>>", async () => {
+      const tspType = "Record<{}>";
+      const inputType = "Record<string, Record<string, unknown>>";
+      const outputType = "Record<string, Record<string, any>>";
+      await verifyPropertyType(tspType, inputType, { outputType });
+    });
+
+    it("should handle record of record of empty object Record<Record<{}>> -> input Record<string, Record<string, Record<string, unknown>>> output  Record<string, Record<string, Record<string, any>>>", async () => {
+      const tspType = "Record<Record<{}>>";
+      const inputType =
+        "Record<string, Record<string, Record<string, unknown>>>";
+      const outputType = "Record<string, Record<string, Record<string, any>>>";
+      await verifyPropertyType(tspType, inputType, { outputType });
+    });
+
+    it("should handle record of record of unknown Record<Record<unknown>> -> input Record<string, Record<string, unknown>>, output Record<string, Record<string, any>>", async () => {
+      const tspType = "Record<Record<unknown>>";
+      const inputType = "Record<string, Record<string, unknown>>";
+      const outputType = "Record<string, Record<string, any>>";
+      await verifyPropertyType(tspType, inputType, { outputType });
     });
   });
 
   describe("Record Model generation", () => {
     it("should handle Record<SimpleModel> -> Record<string, SimpleModel>", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       model SimpleModel {
         prop1: string;
         prop2: int32;
       }
       `;
-      const cadlType = "Record<SimpleModel>";
+      const tspType = "Record<SimpleModel>";
       const inputModelName = "Record<string, SimpleModel>";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `Record<string, SimpleModelOutput>`,
         additionalInputContent: `
         export interface SimpleModel {
@@ -1043,17 +1646,17 @@ describe("Input/output model type", () => {
 
   describe("property definition correctness", () => {
     it("should handle @visibility(read) -> readonly ", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       model SimpleModel {
         @visibility("read")
         prop: int32;
         prop1: int32;
       }
       `;
-      const cadlType = `SimpleModel`;
+      const tspType = `SimpleModel`;
       const inputModelName = "SimpleModel";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `${inputModelName}Output`,
         additionalInputContent: `
         export interface ${inputModelName} {
@@ -1068,15 +1671,15 @@ describe("Input/output model type", () => {
     });
 
     it("should handle optional parameter -> with question mark ", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       model SimpleModel {
         prop?: int32;
       }
       `;
-      const cadlType = `SimpleModel`;
-      const inputModelName = cadlType;
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      const tspType = `SimpleModel`;
+      const inputModelName = tspType;
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `${inputModelName}Output`,
         additionalInputContent: `
         export interface ${inputModelName} {
@@ -1090,17 +1693,17 @@ describe("Input/output model type", () => {
     });
 
     it("should handle nullable optional/required parameter", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       model SimpleModel {
         foo?: string | null;
         bar: string | null;
         baz: string;
       }
       `;
-      const cadlType = `SimpleModel`;
-      const inputModelName = cadlType;
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      const tspType = `SimpleModel`;
+      const inputModelName = tspType;
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `${inputModelName}Output`,
         additionalInputContent: `
         export interface ${inputModelName} {
@@ -1118,15 +1721,15 @@ describe("Input/output model type", () => {
     });
 
     it("should handle optional parameter with defaul value -> general type ", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       model SimpleModel {
         prop?: int32 = 0;
       }
       `;
-      const cadlType = `SimpleModel`;
-      const inputModelName = cadlType;
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      const tspType = `SimpleModel`;
+      const inputModelName = tspType;
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `${inputModelName}Output`,
         additionalInputContent: `
         export interface ${inputModelName} {
@@ -1141,51 +1744,51 @@ describe("Input/output model type", () => {
   });
   describe("Union basic generation", () => {
     it("should handle string | integer -> string | number", async () => {
-      const cadlType = "string | integer";
+      const tspType = "string | integer";
       const typeScriptType = "string | number";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle int32 | string -> number | string", async () => {
-      const cadlType = "int32 | string";
+      const tspType = "int32 | string";
       const typeScriptType = "number | string";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle float32[] | string[] -> number[] | string[]", async () => {
-      const cadlType = "float32[] | string[]";
+      const tspType = "float32[] | string[]";
       const typeScriptType = "number[] | string[]";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle boolean[] | string[] -> boolean[] | string[]", async () => {
-      const cadlType = "boolean[] | string[]";
+      const tspType = "boolean[] | string[]";
       const typeScriptType = "boolean[] | string[]";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle true[] | string[] -> true[] | string[]", async () => {
-      const cadlType = "true[] | string[]";
+      const tspType = "true[] | string[]";
       const typeScriptType = "true[] | string[]";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle 32[] | string[] -> 32[] | string[]", async () => {
-      const cadlType = "32[] | string[]";
+      const tspType = "32[] | string[]";
       const typeScriptType = "32[] | string[]";
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
 
     it("should handle 'job'[] | string[] -> 'job'[] | string[]", async () => {
-      const cadlType = `"job"[] | string[]`;
+      const tspType = `"job"[] | string[]`;
       const typeScriptType = `"job"[] | string[]`;
-      await verifyPropertyType(cadlType, typeScriptType);
+      await verifyPropertyType(tspType, typeScriptType);
     });
   });
 
   describe("Union Models generation", () => {
     it("should handle named unions", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       @doc("This is a base model.")
       model BaseModel {
         name: string;
@@ -1206,10 +1809,10 @@ describe("Input/output model type", () => {
         two: Model2,
       }
       `;
-      const cadlType = "MyNamedUnion";
+      const tspType = "MyNamedUnion";
       const inputModelName = "MyNamedUnion";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `MyNamedUnionOutput`,
         additionalInputContent: `
         /** The first one of the unioned model type. */
@@ -1249,7 +1852,7 @@ describe("Input/output model type", () => {
     });
 
     it("should handle named unions with null variant", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       @doc("The first one of the unioned model type.")
       model Model1 {
         prop1: int32;
@@ -1266,10 +1869,10 @@ describe("Input/output model type", () => {
         three: null
       }
       `;
-      const cadlType = "MyNamedUnion";
+      const tspType = "MyNamedUnion";
       const inputModelName = "MyNamedUnion";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `MyNamedUnionOutput`,
         additionalInputContent: `
         /** The first one of the unioned model type. */
@@ -1299,7 +1902,7 @@ describe("Input/output model type", () => {
     });
 
     it("should handle nullable named unions", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       @doc("The first one of the unioned model type.")
       model Model1 {
         prop1: int32;
@@ -1315,10 +1918,10 @@ describe("Input/output model type", () => {
         two: Model2,
       }
       `;
-      const cadlType = "MyNamedUnion | null";
+      const tspType = "MyNamedUnion | null";
       const inputModelName = "MyNamedUnion | null";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `MyNamedUnionOutput | null`,
         additionalInputContent: `
         /** The first one of the unioned model type. */
@@ -1350,17 +1953,17 @@ describe("Input/output model type", () => {
 
   describe("'is' keyword generation", () => {
     it("should handle A is B, only A is referenced", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       model B {
         "prop": string;
       }
       model A is B{
         "prop1": string;
       }`;
-      const cadlType = "A";
+      const tspType = "A";
       const inputModelName = "A";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `${inputModelName}Output`,
         additionalInputContent: `
         export interface ${inputModelName} {
@@ -1376,7 +1979,7 @@ describe("Input/output model type", () => {
     });
 
     it("should handle A is B, both A and B are referenced", async () => {
-      const schemaOutput = await emitModelsFromCadl(`
+      const schemaOutput = await emitModelsFromTypeSpec(`
       model B {
         "prop": string;
       }
@@ -1411,12 +2014,12 @@ describe("Input/output model type", () => {
     });
 
     it("should handle A is B, B is string", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       scalar MyStr extends string;`;
-      const cadlType = "MyStr";
+      const tspType = "MyStr";
       const inputModelName = "string";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `${inputModelName}`
       });
     });
@@ -1424,7 +2027,7 @@ describe("Input/output model type", () => {
 
   describe("@projectedName", () => {
     it("should generate projected json name for property", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       @doc("This is a Foo model.")
       model FooModel {
         @projectedName("json", "xJson")
@@ -1435,10 +2038,10 @@ describe("Input/output model type", () => {
         y: string;
       }
       `;
-      const cadlType = "FooModel";
+      const tspType = "FooModel";
       const inputModelName = "FooModel";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `FooModelOutput`,
         additionalInputContent: `
         /** This is a Foo model. */
@@ -1456,20 +2059,20 @@ describe("Input/output model type", () => {
     });
 
     it("should generate augmented projected json name for property", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       @doc("This is a Foo model.")
       model FooModel {
         x: int32;
       }
 
-      @@projectedName(FooModel.x, "client", "NotToUseMeAsName") // Should be ignored
-      @@projectedName(FooModel.x, "javascript", "MadeForTS")
-      @@projectedName(FooModel.x, "json", "xJson")
+      @@projectedName(FooModel.x, "client", "NotToUseMeAsName"); // Should be ignored
+      @@projectedName(FooModel.x, "javascript", "MadeForTS");
+      @@projectedName(FooModel.x, "json", "xJson");
       `;
-      const cadlType = "FooModel";
+      const tspType = "FooModel";
       const inputModelName = "FooModel";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `FooModelOutput`,
         additionalInputContent: `
         /** This is a Foo model. */
@@ -1484,8 +2087,8 @@ describe("Input/output model type", () => {
       });
     });
 
-    it("should generate projected model name over friendly name", async () => {
-      const cadlDefinition = `
+    it("should generate friendly name over projected model name", async () => {
+      const tspDefinition = `
       @projectedName("javascript", "CustomProjectedModelTS")
       @projectedName("json", "CustomProjectedModel")
       @friendlyName("CustomFriendlyModel")
@@ -1494,35 +2097,123 @@ describe("Input/output model type", () => {
         x: int32;
       }
       `;
-      const cadlType = "FooModel";
-      const inputModelName = "CustomProjectedModelTS";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
-        outputType: `CustomProjectedModelTSOutput`,
+      const tspType = "FooModel";
+      const inputModelName = "CustomFriendlyModel";
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
+        outputType: `CustomFriendlyModelOutput`,
         additionalInputContent: `
         /** This is a Foo model. */
-        export interface CustomProjectedModelTS {
+        export interface CustomFriendlyModel {
           x: number;
         }`,
         additionalOutputContent: `
         /** This is a Foo model. */
-        export interface CustomProjectedModelTSOutput {
+        export interface CustomFriendlyModelOutput {
           x: number;
         }`
       });
+    });
+
+    it("should ignore projected javascript model name", async () => {
+      const tspDefinition = `
+      @projectedName("javascript", "CustomProjectedModelTS")
+      @doc("This is a Foo model.")
+      model FooModel {
+        x: int32;
+      }
+      `;
+      const tspType = "FooModel";
+      const inputModelName = "FooModel";
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
+        outputType: `FooModelOutput`,
+        additionalInputContent: `
+        /** This is a Foo model. */
+        export interface FooModel {
+          x: number;
+        }`,
+        additionalOutputContent: `
+        /** This is a Foo model. */
+        export interface FooModelOutput {
+          x: number;
+        }`
+      });
+    });
+
+    it("should generate projected operation name for parameter", async () => {
+      const parameters = await emitParameterFromTypeSpec(
+        `
+        @projectedName("json", "testRunOperation")
+        op test(): string;
+        `
+      );
+      assert.ok(parameters);
+      assertEqualContent(
+        parameters?.content!,
+        `
+          import { RequestParameters } from "@azure-rest/core-client";
+          
+          export type TestRunOperationParameters =  RequestParameters;
+          `
+      );
+    });
+
+    it("should generate projected operation name for response", async () => {
+      const parameters = await emitResponsesFromTypeSpec(
+        `
+        @projectedName("json", "testRunOperation")
+        op test(): string;
+        `
+      );
+      assert.ok(parameters);
+      assertEqualContent(
+        parameters?.content!,
+        `
+        import { HttpResponse } from "@azure-rest/core-client";
+          
+        /** The request has succeeded. */
+        export interface TestRunOperation200Response extends HttpResponse {
+          status: "200";
+         body: string;
+        }
+          `
+      );
+    });
+
+    it("should not generate projected javascript name in RLC", async () => {
+      const parameters = await emitResponsesFromTypeSpec(
+        `
+        @projectedName("javascript", "testRunOperation")
+        op test(): string;
+        `
+      );
+      assert.ok(parameters);
+      assertEqualContent(
+        parameters?.content!,
+        `
+        import { HttpResponse } from "@azure-rest/core-client";
+          
+        /** The request has succeeded. */
+        export interface Test200Response extends HttpResponse {
+          status: "200";
+         body: string;
+        }
+          `
+      );
     });
   });
 
   describe("@friendlyName for model", () => {
     it("should generate friendly name", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       @friendlyName("MyNameIsA")
       model A { }
       `;
-      const cadlType = "A";
+      const tspType = "A";
       const inputModelName = "MyNameIsA";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `MyNameIsAOutput`,
         additionalInputContent: `
         export interface MyNameIsA {}
@@ -1534,7 +2225,7 @@ describe("Input/output model type", () => {
     });
 
     it("should generate templated friendly name", async () => {
-      const cadlDefinition = `
+      const tspDefinition = `
       @friendlyName("{name}Model", Base)
       model Base { }
 
@@ -1545,10 +2236,10 @@ describe("Input/output model type", () => {
 
       model X is Templated<Base>{};
       `;
-      const cadlType = "X";
+      const tspType = "X";
       const inputModelName = "TemplatedBase";
-      await verifyPropertyType(cadlType, inputModelName, {
-        additionalCadlDefinition: cadlDefinition,
+      await verifyPropertyType(tspType, inputModelName, {
+        additionalTypeSpecDefinition: tspDefinition,
         outputType: `TemplatedBaseOutput`,
         additionalInputContent: `
         export interface TemplatedBase {
@@ -1565,6 +2256,188 @@ describe("Input/output model type", () => {
         export interface BaseModelOutput {}
         `
       });
+    });
+  });
+
+  describe("core error model", () => {
+    it("Azure.Core.Foundations.ErrorResponse -> ErrorResponse", async () => {
+      const tspDefinition = `
+      @doc("testing")
+      model A {
+        @doc("testing")
+        errors?: Azure.Core.Foundations.ErrorResponse;
+       }
+      `;
+      const tspType = "A";
+      const inputModelName = "A";
+      await verifyPropertyType(
+        tspType,
+        inputModelName,
+        {
+          additionalTypeSpecDefinition: tspDefinition,
+          outputType: `AOutput`,
+          additionalInputContent: `
+        /** testing */
+        export interface A{
+          /** testing */
+          errors?: ErrorResponse;
+        }
+        `,
+          additionalOutputContent: `
+          /** testing */
+          export interface AOutput{
+            /** testing */
+            errors?: ErrorResponse;
+          }
+          `
+        },
+        true,
+        `import { ErrorResponse } from "@azure-rest/core-client"`
+      );
+    });
+
+    it("Azure.Core.Foundations.InnerError -> InnerError", async () => {
+      const tspDefinition = `
+      @doc("testing")
+      model A {
+        @doc("testing")
+        errors?: Azure.Core.Foundations.InnerError;
+       }
+      `;
+      const tspType = "A";
+      const inputModelName = "A";
+      await verifyPropertyType(
+        tspType,
+        inputModelName,
+        {
+          additionalTypeSpecDefinition: tspDefinition,
+          outputType: `AOutput`,
+          additionalInputContent: `
+        /** testing */
+        export interface A{
+          /** testing */
+          errors?: InnerError;
+        }
+        `,
+          additionalOutputContent: `
+          /** testing */
+          export interface AOutput{
+            /** testing */
+            errors?: InnerError;
+          }
+          `
+        },
+        true,
+        `import { InnerError } from "@azure-rest/core-client"`
+      );
+    });
+
+    it("Azure.Core.Foundations.Error -> ErrorModel", async () => {
+      const tspDefinition = `
+      @doc("testing")
+      model A {
+        @doc("testing")
+        errors?: Azure.Core.Foundations.Error;
+       }
+      `;
+      const tspType = "A";
+      const inputModelName = "A";
+      await verifyPropertyType(
+        tspType,
+        inputModelName,
+        {
+          additionalTypeSpecDefinition: tspDefinition,
+          outputType: `AOutput`,
+          additionalInputContent: `
+        /** testing */
+        export interface A{
+          /** testing */
+          errors?: ErrorModel;
+        }
+        `,
+          additionalOutputContent: `
+          /** testing */
+          export interface AOutput{
+            /** testing */
+            errors?: ErrorModel;
+          }
+          `
+        },
+        true,
+        `import { ErrorModel } from "@azure-rest/core-client"`
+      );
+    });
+
+    it("Azure.Core.Foundations.Error[] -> Array<ErrorModel>", async () => {
+      const tspDefinition = `
+      @doc("testing")
+      model A {
+        @doc("testing")
+        errors?: Azure.Core.Foundations.Error[];
+       }
+      `;
+      const tspType = "A";
+      const inputModelName = "A";
+      await verifyPropertyType(
+        tspType,
+        inputModelName,
+        {
+          additionalTypeSpecDefinition: tspDefinition,
+          outputType: `AOutput`,
+          additionalInputContent: `
+        /** testing */
+        export interface A{
+          /** testing */
+          errors?: Array<ErrorModel>;
+        }
+        `,
+          additionalOutputContent: `
+          /** testing */
+          export interface AOutput{
+            /** testing */
+            errors?: Array<ErrorModel>;
+          }
+          `
+        },
+        true,
+        `import { ErrorModel } from "@azure-rest/core-client"`
+      );
+    });
+
+    it("Record<Azure.Core.Foundations.Error> -> Record<ErrorModel>", async () => {
+      const tspDefinition = `
+      @doc("testing")
+      model A {
+        @doc("testing")
+        errors?: Record<Azure.Core.Foundations.Error>;
+       }
+      `;
+      const tspType = "A";
+      const inputModelName = "A";
+      await verifyPropertyType(
+        tspType,
+        inputModelName,
+        {
+          additionalTypeSpecDefinition: tspDefinition,
+          outputType: `AOutput`,
+          additionalInputContent: `
+        /** testing */
+        export interface A{
+          /** testing */
+          errors?: Record<string, ErrorModel>
+        }
+        `,
+          additionalOutputContent: `
+          /** testing */
+          export interface AOutput{
+            /** testing */
+            errors?: Record<string, ErrorModel>
+          }
+          `
+        },
+        true,
+        `import { ErrorModel } from "@azure-rest/core-client"`
+      );
     });
   });
 });
