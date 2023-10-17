@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+-   Synced with origin branch `main`
+
 ## [6.0.3-beta.20230809.1] - 2023-06-09
 
 ### Added
