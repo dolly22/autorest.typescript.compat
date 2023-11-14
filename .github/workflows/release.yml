@@ -8,7 +8,7 @@ on:
     inputs:
       ref_tag:
         type: string
-        description: Tag ref to release from (use full specification with 'refs/tag' prefix)
+        description: Tag ref to release from (use full specification with 'refs/tags/' prefix)
         required: true
 
 jobs:
