@@ -1,10 +1,15 @@
 # Create github release from pushed tag, publish package to npm
 
 name: Release from tag
-run-name: Release from tag ${{ github.ref_name }}
+run-name: Release from tag ${{ github.event.inputs.ref_tag }}
 
 on:
   workflow_dispatch:
+    inputs:
+      ref_tag:
+        type: string
+        description: Tag ref to release from (use full specification with 'refs/tag' prefix)
+        required: true
 
 jobs:
   build:
@@ -15,23 +20,25 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.inputs.ref_tag }}
+
+    - name: Get version from tag
+      id: parse-tag
+      run: |
+        $gitRef="${{ github.event.inputs.ref_tag }}"
+        if (-not $gitRef.StartsWith("refs/tags")) {
+          throw "Must be started from version tag ref!"
+        }
+        $officialBuildId="${{ github.event.inputs.ref_tag }}".Split(".")[-2, -1] -Join "."
+        "officialBuildId=$officialBuildId" >> $env:GITHUB_OUTPUT
+      shell: pwsh
 
     - uses: actions/setup-node@v3
       with:
         node-version: '16.x'
 
     - run: npm install -g @microsoft/rush
-
-    - name: Get version from tag
-      id: parse-tag
-      run: |
-        $gitRef="${{ github.ref }}"
-        if (-not $gitRef.StartsWith("refs/tags")) {
-          throw "Must be started from version tag ref!"
-        }
-        $officialBuildId="${{ github.ref_name }}".Split(".")[-2, -1] -Join "."
-        "officialBuildId=$officialBuildId" >> $env:GITHUB_OUTPUT
-      shell: pwsh
 
     - run: |
         node common/scripts/install-run-rush.js update
@@ -41,7 +48,7 @@ jobs:
       id: version_npm
       working-directory: ./packages/autorest.typescript
       run: |
-        $packageVersion="${{ github.ref_name }}".TrimStart("v")
+        $packageVersion="${{ github.event.inputs.ref_tag }}".TrimStart("v")
         npm version --no-git-tag-version $packageVersion
       shell: pwsh
 
@@ -89,6 +96,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         body_path: RELEASE_NOTES.md
+        tag_name: ${{ github.event.inputs.ref_tag }}
         files: |
           *.tgz
 
