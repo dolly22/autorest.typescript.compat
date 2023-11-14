@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.12-beta.20231114.1] - 2023-11-14
+
 -   Synced with origin branch `main`
 
 ## [6.0.3-beta.20230809.1] - 2023-06-09
@@ -19,7 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -   Initial forked version
 
-[Unreleased]: https://github.com/dolly22/autorest.typescript.compat/compare/v6.0.3-beta.20230809.1...HEAD
+[Unreleased]: https://github.com/dolly22/autorest.typescript.compat/compare/v6.0.12-beta.20231114.1...HEAD
+
+[6.0.12-beta.20231114.1]: https://github.com/dolly22/autorest.typescript.compat/compare/v6.0.3-beta.20230809.1...v6.0.12-beta.20231114.1
 
 [6.0.3-beta.20230809.1]: https://github.com/dolly22/autorest.typescript.compat/compare/v6.0.3-beta.20230608.1...v6.0.3-beta.20230809.1
 
