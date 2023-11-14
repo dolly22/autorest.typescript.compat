@@ -48,7 +48,7 @@ jobs:
       id: version_npm
       working-directory: ./packages/autorest.typescript
       run: |
-        $packageVersion="${{ github.event.inputs.ref_tag }}".TrimStart("v")
+        $packageVersion="${{ github.event.inputs.ref_tag }}".TrimStart("refs/tags/v")
         npm version --no-git-tag-version $packageVersion
       shell: pwsh
 
