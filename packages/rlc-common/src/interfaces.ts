@@ -4,16 +4,51 @@ export interface RLCModel {
   libraryName: string;
   srcPath: string;
   paths: Paths;
+  importInfo: ImportInfo;
   options?: RLCOptions;
   schemas: Schema[];
   apiVersionInfo?: ApiVersionInfo;
   parameters?: OperationParameter[];
   responses?: OperationResponse[];
-  importSet?: Map<ImportKind, Set<string>>;
   helperDetails?: HelperFunctionDetails;
   urlInfo?: UrlInfo;
   telemetryOptions?: TelemetryInfo;
   sampleGroups?: RLCSampleGroup[];
+}
+
+export interface ImportInfo {
+  internalImports: Imports;
+  runtimeImports: Imports;
+}
+
+export type Imports = Record<ImportType, ImportMetadata>;
+
+export type ImportType =
+  /**inner models' imports for parameter and response */
+  | "parameter"
+  | "response"
+  /**common third party imports */
+  | "restClient"
+  | "coreAuth"
+  | "restPipeline"
+  | "coreUtil"
+  | "coreLogger"
+  // this is a fallback import if above imports are not available
+  // mainly used in non-branded scope
+  | "commonFallback"
+  /**azure specific imports */
+  | "azureEslintPlugin"
+  | "azureTestRecorder"
+  | "azureDevTool"
+  | "azureAbortController"
+  | "azureCoreLro"
+  | "azureCorePaging";
+
+export interface ImportMetadata {
+  type: ImportType;
+  specifier?: string;
+  version?: string;
+  importsSet?: Set<string>;
 }
 
 /**
@@ -150,6 +185,11 @@ export interface RLCOptions {
   batch?: any[];
   packageDetails?: PackageDetails;
   addCredentials?: boolean;
+  /** Three possiblie values:
+   * - undefined, no credentialScopes and relevant settings would be generated
+   * - [], which means we would generate TokenCredential but no credentialScopes and relevant settings
+   * - ["..."], which means we would generate credentialScopes and relevant settings with the given values
+   */
   credentialScopes?: string[];
   credentialKeyHeaderName?: string;
   customHttpAuthHeaderName?: string;
@@ -180,6 +220,9 @@ export interface RLCOptions {
   sourceFrom?: "TypeSpec" | "Swagger";
   isModularLibrary?: boolean;
   enableOperationGroup?: boolean;
+  branded?: boolean;
+  enableModelNamespace?: boolean;
+  hierarchyClient?: boolean;
 }
 
 export interface ServiceInfo {
@@ -192,10 +235,6 @@ export interface DependencyInfo {
   description: string;
 }
 
-export enum ImportKind {
-  ResponseOutput,
-  ParameterInput
-}
 export interface File {
   path: string;
   content: string;

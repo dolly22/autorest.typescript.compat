@@ -108,7 +108,7 @@ function restLevelPackage(model: RLCModel) {
       "review/*"
     ],
     engines: {
-      node: ">=16.0.0"
+      node: ">=18.0.0"
     },
     scripts: {
       audit:
@@ -174,7 +174,7 @@ function restLevelPackage(model: RLCModel) {
     devDependencies: {
       "@microsoft/api-extractor": "^7.31.1",
       autorest: "latest",
-      "@types/node": "^16.0.0",
+      "@types/node": "^18.0.0",
       dotenv: "^16.0.0",
       eslint: "^8.0.0",
       mkdirp: "^2.1.2",
@@ -256,7 +256,7 @@ function restLevelPackage(model: RLCModel) {
     packageInfo.devDependencies["karma-source-map-support"] = "~1.4.0";
     packageInfo.devDependencies["karma-sourcemap-loader"] = "^0.4.0";
     packageInfo.devDependencies["karma"] = "^6.2.0";
-    packageInfo.devDependencies["nyc"] = "^15.0.0";
+    packageInfo.devDependencies["c8"] = "^8.0.0";
     packageInfo.devDependencies["source-map-support"] = "^0.5.9";
     packageInfo.devDependencies["ts-node"] = "^10.0.0";
     packageInfo.scripts["test"] =

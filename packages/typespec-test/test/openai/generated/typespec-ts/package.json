@@ -19,7 +19,7 @@
     "LICENSE",
     "review/*"
   ],
-  "engines": { "node": ">=16.0.0" },
+  "engines": { "node": ">=18.0.0" },
   "scripts": {
     "audit": "node ../../../common/scripts/rush-audit.js && rimraf node_modules package-lock.json && npm i --package-lock-only 2>&1 && npm audit",
     "build:browser": "tsc -p . && cross-env ONLY_BROWSER=true rollup -c 2>&1",
@@ -55,12 +55,14 @@
     "@azure-rest/core-client": "^1.1.4",
     "@azure/core-rest-pipeline": "^1.12.0",
     "@azure/logger": "^1.0.0",
-    "tslib": "^2.2.0"
+    "tslib": "^2.2.0",
+    "@azure/core-lro": "^2.5.4",
+    "@azure/abort-controller": "^1.0.0"
   },
   "devDependencies": {
     "@microsoft/api-extractor": "^7.31.1",
     "autorest": "latest",
-    "@types/node": "^16.0.0",
+    "@types/node": "^18.0.0",
     "dotenv": "^16.0.0",
     "eslint": "^8.0.0",
     "mkdirp": "^2.1.2",
@@ -95,7 +97,7 @@
     "karma-source-map-support": "~1.4.0",
     "karma-sourcemap-loader": "^0.4.0",
     "karma": "^6.2.0",
-    "nyc": "^15.0.0",
+    "c8": "^8.0.0",
     "ts-node": "^10.0.0"
   },
   "browser": {

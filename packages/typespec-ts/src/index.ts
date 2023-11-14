@@ -46,6 +46,7 @@ import { buildModels, buildModelsOptions } from "./modular/emitModels.js";
 import { buildOperationFiles } from "./modular/buildOperations.js";
 import { buildSubpathIndexFile } from "./modular/buildSubpathIndex.js";
 import { buildClassicalClient } from "./modular/buildClassicalClient.js";
+import { buildClassicOperationFiles } from "./modular/buildClassicalOperationGroups.js";
 import { emitPackage, emitTsConfig } from "./modular/buildProjectFiles.js";
 import { getRLCClients } from "./utils/clientUtils.js";
 import { join } from "path";
@@ -182,8 +183,20 @@ export async function $onEmit(context: EmitContext) {
         );
         buildClientContext(dpgContext, modularCodeModel, subClient);
         buildSubpathIndexFile(modularCodeModel, subClient, "models");
-        buildSubpathIndexFile(modularCodeModel, subClient, "api");
+        if (dpgContext.rlcOptions?.hierarchyClient) {
+          buildSubpathIndexFile(modularCodeModel, subClient, "api");
+        } else {
+          buildSubpathIndexFile(modularCodeModel, subClient, "api", {
+            exportIndex: true
+          });
+        }
+
         buildClassicalClient(dpgContext, modularCodeModel, subClient);
+        buildClassicOperationFiles(modularCodeModel, subClient);
+        buildSubpathIndexFile(modularCodeModel, subClient, "classic", {
+          exportIndex: true,
+          interfaceOnly: true
+        });
         if (modularCodeModel.clients.length > 1) {
           buildSubClientIndexFile(modularCodeModel, subClient);
         }
@@ -209,6 +222,7 @@ export async function $onEmit(context: EmitContext) {
     }
     const rlcClient: RLCModel = rlcCodeModels[0];
     const option = dpgContext.rlcOptions!;
+    const isBranded = option.branded ?? true;
     // Generate metadata
     const hasPackageFile = await existsSync(
       join(dpgContext.generationPathDetail?.metadataDir ?? "", "package.json")
@@ -216,17 +230,20 @@ export async function $onEmit(context: EmitContext) {
     const shouldGenerateMetadata =
       option.generateMetadata === true ||
       (option.generateMetadata === undefined && !hasPackageFile);
-    const commonBuilders = [
-      buildEsLintConfig,
-      buildRollupConfig,
-      buildApiExtractorConfig,
-      buildReadmeFile
-    ];
-    if (!option.isModularLibrary) {
-      commonBuilders.push(buildPackageFile);
-      commonBuilders.push(buildTsConfig);
-    }
+
     if (shouldGenerateMetadata) {
+      const commonBuilders = [
+        buildRollupConfig,
+        buildApiExtractorConfig,
+        buildReadmeFile
+      ];
+      if (isBranded) {
+        commonBuilders.push(buildEsLintConfig);
+      }
+      if (!option.isModularLibrary) {
+        commonBuilders.push(buildPackageFile);
+        commonBuilders.push(buildTsConfig);
+      }
       // build metadata relevant files
       await emitContentByBuilder(
         program,
@@ -264,7 +281,7 @@ export async function $onEmit(context: EmitContext) {
     const shouldGenerateTest =
       option.generateTest === true ||
       (option.generateTest === undefined && !hasTestFolder);
-    if (shouldGenerateTest) {
+    if (shouldGenerateTest && isBranded) {
       await emitContentByBuilder(
         program,
         [
