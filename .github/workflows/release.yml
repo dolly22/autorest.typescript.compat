@@ -92,7 +92,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         body_path: RELEASE_NOTES.md
-        tag_name: refs/tags/${{ github.event.inputs.tag_name }}
+        tag_name: ${{ github.event.inputs.tag_name }}
         files: |
           *.tgz
 
